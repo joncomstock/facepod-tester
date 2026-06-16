@@ -30,10 +30,14 @@ deno task dev:mock     # backend serves the API *and* the built UI (no hardware)
 # → open http://localhost:8787
 ```
 
-Click **Connect** and drive the whole `connect → open camera → capture → match`
-flow against a deterministic fake device. Use the **Mock scenario** selector
-(panel 01) to exercise the failure paths (`spoof`, `no-face`, `device-error`,
-…).
+The app opens in **Live mode** — tap **Go Live** to connect, open the camera,
+and start the continuous watch loop. A HUD displays the latest detected-face
+image, three threshold-marker bars (Quality / Liveness / Match), an ACCEPT /
+REJECT verdict, and derived positioning guidance. Switch to **Manual mode**
+(masthead toggle) for the original step-by-step panels (01–05).
+
+Use the **Mock scenario** selector (connection gear → panel 01 ⚙) to exercise
+failure paths (`spoof`, `no-face`, `device-error`, `approaching`, …).
 
 **Hot-reloading UI development — two terminals:**
 
@@ -56,6 +60,23 @@ permission and the `HidFace.dll` location.
 Stop either server with `Ctrl-C` (it disposes the FacePod session on the way
 out).
 
+## UI modes
+
+| Mode | Description |
+| ---- | ----------- |
+| **Live** (default) | Tap **Go Live** — connects, opens the camera, and starts a continuous watch loop. The HUD shows the detected-face image refreshed by each loop iteration, three threshold-marker bars (Quality / Liveness / Match), an ACCEPT/REJECT verdict, and derived positioning guidance (bbox size / faceStatus). Optionally set an in-memory reference image to activate the Match bar. |
+| **Manual** | The original five-panel step-through (01 Connection · 02 Device Info · 03 Camera · 04 Capture · 05 Match / Upload). Useful for one-off testing, inspecting raw JSON, and exercising individual API calls. |
+
+The masthead toggle switches between modes without dropping the session.
+
+> **Live feed boundary:** the HUD displays the **detected-face image** returned
+> by each `captureAndProcess` iteration (the crop the HF pipeline actually
+> evaluated). It is **not** a full-frame webcam stream. A true full-frame video
+> feed with bounding-box / landmark overlay requires binding `HFGetVideoFrame` in
+> `hardware-libs` — that is a separate **Phase 2** effort. Positioning guidance
+> shown in the HUD is derived in-UI from bbox size and faceStatus and is labeled
+> "derived, not HID-measured."
+
 ## Layout
 
 ```text
@@ -68,7 +89,7 @@ facepod-tester/
 │   ├── errors.ts         # FaceModule error → JSON envelope normalization
 │   ├── facepodSession.ts # single in-memory FacePod session manager (USB/FFI or mock)
 │   └── mockClient.ts     # deterministic fake client for mock mode
-└── src/                # React frontend (DeviceConfig / Status / Camera / Capture / Match / JsonViewer)
+└── src/                # React frontend (Live HUD / Manual panels / shared components)
 ```
 
 ## Prerequisites
@@ -205,6 +226,7 @@ All endpoints are under `/api`. Errors return
 ## Tests
 
 ```bash
+npm test          # frontend unit tests (vitest — Live HUD logic, bar state, verdict)
 deno task test    # backend unit tests (config parsing + error normalization)
 deno task check   # backend type-check
 npm run build     # frontend type-check + build
@@ -216,17 +238,31 @@ Automated tests do **not** require FacePod hardware.
 
 With the backend running live on the device (`deno task dev`, valid license):
 
-1. **Connect** — leave mock unticked (live), click Connect; device info appears.
-2. **Get Device Info** / **Get Cameras** — confirm the device and camera list.
-3. **Open Camera** — pick a camera (or default) and open the context.
-4. **Upload + Process Reference** — choose a PNG/JPEG face; click _Process
+### Live mode (default)
+
+1. Tap **Go Live** — the app connects, opens the default camera, and enters the
+   continuous watch loop automatically.
+2. Stand in front of the camera; watch the Quality / Liveness bars fill and the
+   verdict update.
+3. Optionally tap **Set reference…**, choose a PNG/JPEG face; the Match bar
+   activates and contributes to the verdict.
+4. Tap **Stop** to exit the loop, then **Disconnect** when done.
+
+### Manual mode (for step-by-step testing)
+
+Switch to **Manual** in the masthead toggle, then:
+
+1. **Connect** (panel 01) — leave mock unticked (live); device info appears.
+2. **Get Device Info** / **Get Cameras** (panel 02) — confirm the device and camera list.
+3. **Open Camera** (panel 03) — pick a camera (or default) and open the context.
+4. **Upload + Process Reference** (panel 05) — choose a PNG/JPEG face; click _Process
    Reference → Template_.
-5. **Capture Live Face** — set quality/spoof thresholds; click _Capture Live
+5. **Capture Live Face** (panel 04) — set quality/spoof thresholds; click _Capture Live
    Face_.
-6. **Match** — click _Match Reference ↔ Live_ (or _Capture & Match_ for the
+6. **Match** (panel 05) — click _Match Reference ↔ Live_ (or _Capture & Match_ for the
    combined flow); check the pass/fail verdict, score, and liveness.
-7. **Close Camera**.
-8. **Disconnect**.
+7. **Close Camera** (panel 03).
+8. **Disconnect** (panel 01).
 
 ## Security model
 
