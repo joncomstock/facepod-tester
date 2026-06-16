@@ -155,7 +155,9 @@ export function App() {
         </span>
         <div className="status-meta">
           <span><b>Transport:</b> {status?.mock ? "Mock" : "USB / FFI"}</span>
-          {!status?.mock && status?.dllPath && <span><b>DLL:</b> {status.dllPath}</span>}
+          {!status?.mock && status?.dllPath && (
+            <span title={status.dllPath}><b>DLL:</b> {status.dllPath.split(/[\\/]/).pop()}</span>
+          )}
           <span><b>Camera:</b> {status?.cameraOpen ? "open" : "closed"}</span>
           {status?.mock && (
             <span className="mock-tag">
