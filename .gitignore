@@ -1,0 +1,16 @@
+# Secrets / local env
+.env
+*.pem
+
+# Frontend build + deps
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+*.log
+
+# Playwright MCP artifacts
+.playwright-mcp/
+.ref-face.png

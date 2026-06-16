@@ -1,0 +1,225 @@
+/**
+ * Deterministic in-memory FacePod client for mock mode (FACEPOD_MOCK=true).
+ *
+ * The library ships `NullFaceModuleClient`, but it returns empty results
+ * (no templates, match=false), so it can't exercise the capture→process→match
+ * workflow in the UI. This client returns realistic, deterministic data so the
+ * full happy path — and, via SCENARIOS, the common failure paths — can be demoed
+ * with no hardware. It is NOT a network client and performs no I/O.
+ *
+ * The active scenario is read through a provider closure on every call, so the
+ * session can flip scenarios live (no reconnect). See FacePodSession.
+ */
+
+import {
+  type CameraInfo,
+  type CaptureOptions,
+  type CaptureResult,
+  type DeviceInfo,
+  type FaceImage,
+  FaceModuleApiError,
+  type FaceModuleClient,
+  type FaceTemplate,
+  type MatchOptions,
+  type MatchResult,
+  type OpenContextOptions,
+  type ProcessOptions,
+  type ProcessResult,
+} from "@eai/hid/facepod";
+
+/** Selectable mock behaviours for exercising happy + failure paths. */
+export const MOCK_SCENARIOS = [
+  "good", // high quality, live, templates present, match succeeds
+  "low-quality", // quality below threshold → isCaptured false
+  "spoof", // high spoof score → liveness FAIL
+  "no-face", // 0 faces, no template/image
+  "no-match", // good capture but match score below any sane threshold
+  "device-error", // capture/process/match throw FaceModuleApiError
+] as const;
+
+export type MockScenario = (typeof MOCK_SCENARIOS)[number];
+
+export function isMockScenario(value: unknown): value is MockScenario {
+  return typeof value === "string" &&
+    (MOCK_SCENARIOS as readonly string[]).includes(value);
+}
+
+// A small valid 1x1 PNG used as a placeholder face image for live captures.
+// (Reference processing echoes the uploaded image instead — see processImage.)
+const PLACEHOLDER_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+// Deterministic template payloads. Distinct ref/live values prove that match
+// scoring is genuinely comparing two different templates.
+const MOCK_LIVE_TEMPLATE = "MOCK::live-face-template::v1";
+
+function faceTemplate(data: string): FaceTemplate {
+  return { modality: "face", datatype: "hftemplate", data };
+}
+
+/**
+ * Deterministic similarity in [0,1] from two template strings: identical → 1.0,
+ * otherwise a stable score based on shared-prefix length. Good enough to drive
+ * pass/fail against a UI-supplied minimalMatchScore.
+ */
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  const max = Math.max(a.length, b.length) || 1;
+  let shared = 0;
+  const min = Math.min(a.length, b.length);
+  for (let i = 0; i < min && a[i] === b[i]; i++) shared++;
+  // Map shared-prefix ratio into a plausible biometric range (~0.85..0.95).
+  const ratio = shared / max;
+  return Math.round((0.85 + ratio * 0.1) * 1000) / 1000;
+}
+
+function passedSpoof(spoofScore: number, maximalSpoofScore?: number): boolean {
+  return maximalSpoofScore === undefined
+    ? true
+    : spoofScore <= maximalSpoofScore;
+}
+
+function deviceError(op: string): FaceModuleApiError {
+  return new FaceModuleApiError(
+    1001,
+    `Mock device error during ${op} (scenario: device-error)`,
+    500,
+  );
+}
+
+export class DeterministicMockClient implements FaceModuleClient {
+  readonly #scenario: () => MockScenario;
+
+  /** @param scenario provider read on every call, so scenarios switch live. */
+  constructor(scenario: () => MockScenario = () => "good") {
+    this.#scenario = scenario;
+  }
+
+  getInfo(): Promise<DeviceInfo> {
+    return Promise.resolve({
+      deviceId: "MOCK-FACEPOD-0001",
+      deviceRole: ["face"],
+      deviceType: "U.ARE.U Face Module (mock)",
+      version: "1.0.0.0-mock",
+    });
+  }
+
+  getCameraList(): Promise<CameraInfo[]> {
+    return Promise.resolve([
+      { id: "cam0", name: "Mock Front Camera" },
+      { id: "cam1", name: "Mock IR Camera" },
+    ]);
+  }
+
+  openCameraContext(_opts?: OpenContextOptions): Promise<void> {
+    return Promise.resolve();
+  }
+
+  closeCameraContext(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  captureAndProcess(
+    opts: CaptureOptions,
+    _signal?: AbortSignal,
+  ): Promise<CaptureResult> {
+    const scenario = this.#scenario();
+    if (scenario === "device-error") {
+      return Promise.reject(deviceError("captureAndProcess"));
+    }
+
+    if (scenario === "no-face") {
+      return Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+        faceStatus: "no_face",
+      });
+    }
+
+    const quality = scenario === "low-quality" ? 0.34 : 0.92;
+    const spoofScore = scenario === "spoof" ? 0.93 : 0.08;
+    const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
+    return Promise.resolve({
+      quality,
+      numberOfFaces: 1,
+      template: faceTemplate(MOCK_LIVE_TEMPLATE),
+      image: {
+        modality: "face",
+        datatype: "png",
+        data: PLACEHOLDER_PNG_BASE64,
+      },
+      liveness: { spoofScore, passed },
+      boundingBox: { x: 40, y: 30, width: 180, height: 220 },
+      landmarks: [
+        { type: "left_eye", x: 90, y: 110 },
+        { type: "right_eye", x: 170, y: 110 },
+        { type: "nose", x: 130, y: 160 },
+      ],
+      isCaptured: quality >= opts.minimalQuality && passed,
+      faceStatus: passed ? "ok" : "spoof_suspected",
+    });
+  }
+
+  processImage(
+    image: FaceImage,
+    opts?: ProcessOptions,
+  ): Promise<ProcessResult> {
+    const scenario = this.#scenario();
+    if (scenario === "device-error") {
+      return Promise.reject(deviceError("processImage"));
+    }
+
+    if (scenario === "no-face") {
+      return Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        isCaptured: false,
+        faceStatus: "no_face",
+      });
+    }
+
+    const quality = scenario === "low-quality" ? 0.34 : 0.88;
+    // Derive a stable per-image template so re-processing the same upload yields
+    // the same template, and different uploads yield different ones.
+    const template = faceTemplate(
+      `MOCK::ref::${image.datatype}::${image.data.length}`,
+    );
+    const minimalQuality = opts?.minimalQuality ?? 0;
+    return Promise.resolve({
+      quality,
+      numberOfFaces: 1,
+      template,
+      // Echo the uploaded image back so the UI preview shows what was sent.
+      faceImage: image,
+      boundingBox: { x: 20, y: 20, width: 160, height: 200 },
+      landmarks: [
+        { type: "left_eye", x: 70, y: 90 },
+        { type: "right_eye", x: 150, y: 90 },
+      ],
+      isCaptured: quality >= minimalQuality,
+      faceStatus: "ok",
+    });
+  }
+
+  matchWithTemplate(
+    a: FaceTemplate,
+    b: FaceTemplate,
+    opts: MatchOptions,
+  ): Promise<MatchResult> {
+    const scenario = this.#scenario();
+    if (scenario === "device-error") {
+      return Promise.reject(deviceError("matchWithTemplate"));
+    }
+
+    // no-match forces a low score regardless of the templates supplied.
+    const matchScore = scenario === "no-match"
+      ? 0.28
+      : similarity(a.data, b.data);
+    return Promise.resolve({
+      match: matchScore >= opts.minimalMatchScore,
+      matchScore,
+    });
+  }
+}

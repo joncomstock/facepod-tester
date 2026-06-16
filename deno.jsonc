@@ -1,0 +1,36 @@
+{
+  // Standalone FacePod hardware tester backend (Deno).
+  // Consumes the LOCAL hardware-libs FacePod module directly via an import alias.
+  // hardware-libs is NOT modified by this app.
+  "imports": {
+    // FacePod library — local path into the sibling hardware-libs repo.
+    "@eai/hid/facepod": "../hardware-libs/hid/facepod/mod.ts",
+    // FacePod's only external runtime dependency (transitive). Pin matches
+    // hardware-libs/deno.jsonc so we resolve the same version.
+    "@eai/logging-ts": "jsr:@eai/logging-ts@^2.6.0",
+    // HTTP server framework (+ the subpath exports this app uses).
+    "@hono/hono": "jsr:@hono/hono@^4.6.0",
+    "@hono/hono/cors": "jsr:@hono/hono@^4.6.0/cors",
+    "@hono/hono/deno": "jsr:@hono/hono@^4.6.0/deno",
+    // Transitive dep of the FFI client (base64 template/image payloads). Pin
+    // matches hardware-libs/deno.jsonc so we resolve the same version.
+    "@std/encoding/base64": "jsr:@std/encoding@^1/base64",
+    // Test-only.
+    "@std/assert": "jsr:@std/assert@^1.0.14"
+  },
+  "tasks": {
+    // Run the backend against real hardware (USB/FFI). --allow-ffi loads
+    // HidFace.dll; --allow-net binds the loopback HTTP server; --allow-env/read
+    // read config and serve the built frontend.
+    "dev": "deno run --allow-ffi --allow-net --allow-env --allow-read server/main.ts",
+    // Mock mode — no hardware, no FFI permission needed. The --mock flag is
+    // cross-platform (works under cmd.exe on the Windows device); it's equivalent
+    // to setting FACEPOD_MOCK=true.
+    "dev:mock": "deno run --allow-net --allow-env --allow-read server/main.ts --mock",
+    "test": "deno test --allow-env --allow-read server/",
+    "check": "deno check server/main.ts"
+  },
+  "fmt": {
+    "exclude": ["src/", "dist/", "node_modules/"]
+  }
+}
