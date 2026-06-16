@@ -585,14 +585,14 @@ details.json pre {
 .guide .ar { font-size: 22px; color: hsl(var(--primary)); filter: var(--glow-primary); }
 
 /* Verdict chip */
-.verdict { height: 78px; border-radius: 16px; display: flex; align-items: center; justify-content: center; gap: 16px;
+.live-shell .verdict { height: 78px; border-radius: 16px; display: flex; align-items: center; justify-content: center; gap: 16px;
   font-size: 30px; font-weight: 800; letter-spacing: .04em; border: 1px solid hsl(var(--border)); transition: all .35s; margin: 4px 0; }
-.verdict .big { display: inline-flex; align-items: center; gap: 14px; }
-.verdict.searching { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
-.verdict.accept { background: hsl(var(--success) / 0.13); color: hsl(var(--success)); border-color: hsl(var(--success) / 0.45);
+.live-shell .verdict .big { display: inline-flex; align-items: center; gap: 14px; }
+.live-shell .verdict.searching { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
+.live-shell .verdict.accept { background: hsl(var(--success) / 0.13); color: hsl(var(--success)); border-color: hsl(var(--success) / 0.45);
   text-shadow: 0 0 18px hsl(var(--success) / 0.5); animation: pop .4s cubic-bezier(.2,1.4,.4,1); }
-.verdict.reject { background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.4); }
-.verdict .reason { font-size: 15px; font-weight: 600; letter-spacing: 0; opacity: .85; text-transform: none; }
+.live-shell .verdict.reject { background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.4); }
+.live-shell .verdict .reason { font-size: 15px; font-weight: 600; letter-spacing: 0; opacity: .85; text-transform: none; }
 @keyframes pop { 0% { transform: scale(.96); } 60% { transform: scale(1.02); } 100% { transform: scale(1); } }
 
 /* Telemetry bars */
