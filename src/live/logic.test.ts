@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { toLiveFrame } from "./logic.ts";
+import { barState, computeVerdict, deriveGuidance, toLiveFrame } from "./logic.ts";
+import type { LiveFrame, LiveThresholds } from "./types.ts";
 
 const baseCapture: CaptureResult = {
   quality: 0.92,
@@ -45,9 +46,6 @@ describe("toLiveFrame", () => {
     expect(f.boundingBox).toBeNull();
   });
 });
-
-import { barState, computeVerdict } from "./logic.ts";
-import type { LiveFrame, LiveThresholds } from "./types.ts";
 
 const T: LiveThresholds = {
   minimalQuality: 0.7,
@@ -112,8 +110,6 @@ describe("computeVerdict", () => {
     expect(computeVerdict(frame({ isCaptured: false }), T, false).state).toBe("acquiring");
   });
 });
-
-import { deriveGuidance } from "./logic.ts";
 
 describe("deriveGuidance", () => {
   it("prompts to step in when no face", () => {

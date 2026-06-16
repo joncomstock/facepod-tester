@@ -6,16 +6,18 @@ interface Props {
   onToggleWatch: () => void;
   onPickReference: (file: File) => void;
   onClearReference: () => void;
+  onEnd: () => void;
 }
 
 /** Watch toggle + in-memory reference control (no persistence per constraints). */
-export function ActionDock({ watching, hasReference, onToggleWatch, onPickReference, onClearReference }: Props) {
+export function ActionDock({ watching, hasReference, onToggleWatch, onPickReference, onClearReference, onEnd }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div className="dock">
       <button className="btn primary" onClick={onToggleWatch}>
         {watching ? "Continuous watch · ON" : "Start watching"}
       </button>
+      <button className="btn" onClick={onEnd}>End session</button>
       <div className="refchip">
         <span className="k">Reference</span>
         {hasReference

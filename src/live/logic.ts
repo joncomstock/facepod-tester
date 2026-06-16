@@ -1,6 +1,6 @@
 /** Pure Live-HUD logic — no React/DOM, fully unit-tested. */
 import type { CaptureResult, MatchResult } from "../api.ts";
-import type { LiveFrame } from "./types.ts";
+import type { BarView, LiveFrame, LiveThresholds, Verdict } from "./types.ts";
 
 /** Fold a capture result (+ optional match) into the HUD's frame shape. */
 export function toLiveFrame(
@@ -20,8 +20,6 @@ export function toLiveFrame(
     matchPassed: match ? match.match : null,
   };
 }
-
-import type { BarView, LiveThresholds, Verdict } from "./types.ts";
 
 /** Width-margin (0–1) within which a passing value is "warn" not "ok". */
 const WARN_MARGIN = 0.06;

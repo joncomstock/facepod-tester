@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type NormalizedError, type SessionStatus } from "../../api.ts";
 import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
@@ -66,6 +66,23 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
     }
   }, [onError]);
 
+  const endSession = useCallback(async () => {
+    try {
+      await api.disconnect();
+    } catch (e) {
+      onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
+    }
+    setWatching(false);
+    setFrame(null);
+    setRefTemplate(null);
+    setScene("idle");
+    onSessionChange?.();
+  }, [onError, onSessionChange]);
+
+  useEffect(() => {
+    if (!watching) setFrame(null);
+  }, [watching]);
+
   const pickReference = useCallback(async (file: File) => {
     const read = await readImageFile(file);
     if ("error" in read) {
@@ -99,7 +116,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
             the device default is pre-configured.
           </p>
           <button className="go" onClick={goLive}>Go Live</button>
-          <p className="target">Transport <b>USB / FFI</b> · default camera</p>
+          <p className="target">Transport <b>{loadConnectionSettings().mock ? "Mock" : "USB / FFI"}</b> · default camera</p>
         </div>
       </div>
     );
@@ -127,6 +144,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
         onToggleWatch={() => setWatching((w) => !w)}
         onPickReference={pickReference}
         onClearReference={() => setRefTemplate(null)}
+        onEnd={endSession}
       />
       <p className="hint">Guidance is derived in-UI from face size/status, not HID-measured.</p>
     </div>

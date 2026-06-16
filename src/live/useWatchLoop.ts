@@ -64,7 +64,7 @@ export function useWatchLoop(opts: Options): void {
         await new Promise((r) => setTimeout(r, ref.current.intervalMs ?? 150));
       }
     };
-    loop();
+    void loop().catch(() => {});
 
     return () => {
       runningRef.current = false;

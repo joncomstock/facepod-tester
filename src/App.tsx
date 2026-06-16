@@ -145,6 +145,7 @@ export function App() {
     <div className="app">
       <header className="masthead">
         <h1>FacePod Tester</h1>
+        <span className="sub">Local hardware test utility · HID U.ARE.U Face Module</span>
         <div className="mode-toggle" role="tablist" aria-label="View mode">
           <button
             role="tab"

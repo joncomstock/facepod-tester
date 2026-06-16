@@ -240,13 +240,16 @@ With the backend running live on the device (`deno task dev`, valid license):
 
 ### Live mode (default)
 
-1. Tap **Go Live** — the app connects, opens the default camera, and enters the
+1. Tap **Go Live** — the app connects, opens the default camera, and starts the
    continuous watch loop automatically.
 2. Stand in front of the camera; watch the Quality / Liveness bars fill and the
    verdict update.
 3. Optionally tap **Set reference…**, choose a PNG/JPEG face; the Match bar
    activates and contributes to the verdict.
-4. Tap **Stop** to exit the loop, then **Disconnect** when done.
+4. Tap **Continuous watch · ON** to pause the loop (clears the last frame/verdict);
+   tap again to resume.
+5. Tap **End session** to close the camera, disconnect, and return to the idle
+   screen.
 
 ### Manual mode (for step-by-step testing)
 
