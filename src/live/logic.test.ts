@@ -112,3 +112,25 @@ describe("computeVerdict", () => {
     expect(computeVerdict(frame({ isCaptured: false }), T, false).state).toBe("acquiring");
   });
 });
+
+import { deriveGuidance } from "./logic.ts";
+
+describe("deriveGuidance", () => {
+  it("prompts to step in when no face", () => {
+    expect(deriveGuidance(frame({ numberOfFaces: 0 }))).toBe("Step in front of the camera");
+  });
+  it("prompts closer when the face box is small", () => {
+    expect(deriveGuidance(frame({ boundingBox: { x: 0, y: 0, width: 80, height: 90 } })))
+      .toBe("Move a little closer");
+  });
+  it("prompts to look at camera on spoof suspicion", () => {
+    expect(deriveGuidance(frame({ faceStatus: "spoof_suspected" })))
+      .toBe("Look directly at the camera");
+  });
+  it("asks to hold still when face is present but not captured", () => {
+    expect(deriveGuidance(frame({ isCaptured: false }))).toBe("Hold still");
+  });
+  it("returns null when locked (captured, good size)", () => {
+    expect(deriveGuidance(frame())).toBeNull();
+  });
+});

@@ -68,3 +68,20 @@ export function computeVerdict(
   if (reasons.length > 0) return { state: "reject", reasons };
   return { state: "acquiring", reasons: [] };
 }
+
+/**
+ * DERIVED positioning guidance (NOT HID-measured). The seam does not expose
+ * decoded positioning feedback on FFI today (see docs/UI-FEEDBACK.md §3/§7), so
+ * we infer a friendly hint from the bounding box + face status. The UI must
+ * label this as "derived". Returns null when the subject looks locked.
+ */
+const MIN_FACE_AREA = 14_400; // px² (≈120×120); below → likely too far. Heuristic.
+
+export function deriveGuidance(frame: LiveFrame): string | null {
+  if (frame.numberOfFaces < 1) return "Step in front of the camera";
+  const bb = frame.boundingBox;
+  if (bb && bb.width * bb.height < MIN_FACE_AREA) return "Move a little closer";
+  if (frame.faceStatus === "spoof_suspected") return "Look directly at the camera";
+  if (!frame.isCaptured) return "Hold still";
+  return null;
+}
