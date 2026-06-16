@@ -18,6 +18,7 @@ export const MOCK_SCENARIOS = [
   "no-face",
   "no-match",
   "device-error",
+  "approach",
 ] as const;
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
@@ -29,6 +30,7 @@ export const SCENARIO_LABELS: Record<MockScenario, string> = {
   "no-face": "No face",
   "no-match": "No match",
   "device-error": "Device error",
+  "approach": "Approaching face (live demo)",
 };
 
 export interface DeviceInfo {

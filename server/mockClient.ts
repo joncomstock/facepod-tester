@@ -35,6 +35,7 @@ export const MOCK_SCENARIOS = [
   "no-face", // 0 faces, no template/image
   "no-match", // good capture but match score below any sane threshold
   "device-error", // capture/process/match throw FaceModuleApiError
+  "approach", // ramps quality + bbox across captures (drives the Live HUD demo)
 ] as const;
 
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
@@ -89,6 +90,7 @@ function deviceError(op: string): FaceModuleApiError {
 
 export class DeterministicMockClient implements FaceModuleClient {
   readonly #scenario: () => MockScenario;
+  #approachTick = 0;
 
   /** @param scenario provider read on every call, so scenarios switch live. */
   constructor(scenario: () => MockScenario = () => "good") {
@@ -124,6 +126,40 @@ export class DeterministicMockClient implements FaceModuleClient {
     _signal?: AbortSignal,
   ): Promise<CaptureResult> {
     const scenario = this.#scenario();
+    if (scenario === "approach") {
+      // 16-step loop: 0–2 no face, then quality + box ramp to a lock, then reset.
+      const n = this.#approachTick % 16;
+      this.#approachTick++;
+      if (n < 2) {
+        return Promise.resolve({
+          quality: 0,
+          numberOfFaces: 0,
+          liveness: { spoofScore: 0, passed: true },
+          isCaptured: false,
+          faceStatus: "no_face",
+        });
+      }
+      const p = Math.min(1, (n - 2) / 9); // approach progress 0..1
+      const quality = Math.round((0.2 + p * 0.75) * 100) / 100;
+      const spoofScore = Math.round((0.6 - p * 0.5) * 100) / 100;
+      const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
+      const side = Math.round(120 + p * 120);
+      return Promise.resolve({
+        quality,
+        numberOfFaces: 1,
+        template: faceTemplate(MOCK_LIVE_TEMPLATE),
+        image: { modality: "face", datatype: "png", data: PLACEHOLDER_PNG_BASE64 },
+        liveness: { spoofScore, passed },
+        boundingBox: { x: 60, y: 40, width: side, height: Math.round(side * 1.2) },
+        landmarks: [
+          { type: "left_eye", x: 90, y: 110 },
+          { type: "right_eye", x: 170, y: 110 },
+          { type: "nose", x: 130, y: 160 },
+        ],
+        isCaptured: quality >= opts.minimalQuality && passed,
+        faceStatus: passed ? "ok" : "spoof_suspected",
+      });
+    }
     if (scenario === "device-error") {
       return Promise.reject(deviceError("captureAndProcess"));
     }
