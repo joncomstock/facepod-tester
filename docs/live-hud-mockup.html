@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FacePod Tester · Live HUD mockup (800×1280)</title>
+<!--
+  Static, self-contained mockup of the proposed "biometric viewfinder HUD".
+  No build step — open directly in a browser. Fonts/tokens mirror src/styles.css
+  (AirOps cyan-on-black, Urbanist). Everything animated here is SIMULATED:
+  a fake face "approaches" so the live telemetry, bbox and verdict come alive.
+  Scene switcher (bottom-left) demos idle → connecting → live.
+-->
+<style>
+@font-face { font-family:"Urbanist"; src:url("../public/fonts/Urbanist-Regular.ttf") format("truetype"); font-weight:400; }
+@font-face { font-family:"Urbanist"; src:url("../public/fonts/Urbanist-Medium.ttf") format("truetype"); font-weight:500; }
+@font-face { font-family:"Urbanist"; src:url("../public/fonts/Urbanist-SemiBold.ttf") format("truetype"); font-weight:600; }
+@font-face { font-family:"Urbanist"; src:url("../public/fonts/Urbanist-Bold.ttf") format("truetype"); font-weight:700; }
+@font-face { font-family:"Urbanist"; src:url("../public/fonts/Urbanist-ExtraBold.ttf") format("truetype"); font-weight:800; }
+
+:root{
+  --background:0 0% 5%; --foreground:0 0% 98%; --card:0 0% 10%; --muted:0 0% 14%;
+  --muted-foreground:0 0% 62%; --accent:0 0% 16%; --border:0 0% 18%; --input:0 0% 22%;
+  --primary:198 100% 64%; --destructive:0 84% 62%; --success:142 69% 58%; --warning:45 100% 55%;
+  --radius:.5rem;
+  --sans:"Urbanist",ui-sans-serif,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --glow:drop-shadow(0 0 3px hsl(var(--primary)/.9)) drop-shadow(0 0 7px hsl(var(--primary)/.5));
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:
+    radial-gradient(1100px 700px at 50% -10%, hsl(var(--primary)/.05), transparent 60%),
+    radial-gradient(800px 600px at 80% 110%, hsl(280 60% 40%/.04), transparent 60%),
+    hsl(var(--background));
+  color:hsl(var(--foreground)); font-family:var(--sans);
+  display:flex; align-items:center; justify-content:center; min-height:100vh; overflow:hidden;
+}
+
+/* Scale the fixed 800×1280 kiosk to fit whatever window views it. */
+#stage{ transform-origin:center center; }
+.kiosk{
+  width:800px; height:1280px; position:relative;
+  background:hsl(var(--background));
+  border:1px solid hsl(var(--border)); border-radius:26px;
+  box-shadow:0 40px 120px hsl(0 0% 0%/.7), 0 0 0 10px hsl(0 0% 7%), 0 0 0 11px hsl(var(--border));
+  display:flex; flex-direction:column; overflow:hidden; padding:18px;
+}
+
+/* ---------- Status rail ---------- */
+.rail{ display:flex; align-items:center; gap:16px; height:60px; flex:none; padding:0 6px; }
+.brand{ display:flex; align-items:center; gap:11px; font-weight:800; font-size:17px; letter-spacing:-.02em; }
+.brand .mark{ width:11px; height:11px; border-radius:3px; background:hsl(var(--primary)); filter:var(--glow); }
+.live-dot{ display:inline-flex; align-items:center; gap:9px; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.1em; color:hsl(var(--primary)); }
+.live-dot .d{ width:9px; height:9px; border-radius:50%; background:hsl(var(--primary)); filter:var(--glow);
+  animation:breathe 2.4s ease-in-out infinite; }
+@keyframes breathe{0%,100%{opacity:1; transform:scale(1);}50%{opacity:.45; transform:scale(.8);}}
+.rail .spacer{ flex:1; }
+.seg{ display:inline-flex; background:hsl(var(--muted)); border:1px solid hsl(var(--border));
+  border-radius:999px; padding:3px; gap:2px; }
+.seg button{ font:inherit; font-size:12px; font-weight:700; letter-spacing:.04em; color:hsl(var(--muted-foreground));
+  background:transparent; border:none; border-radius:999px; padding:7px 16px; cursor:pointer; text-transform:uppercase; }
+.seg button.on{ background:hsl(var(--primary)/.16); color:hsl(var(--primary)); }
+.icon{ width:42px; height:42px; flex:none; display:inline-flex; align-items:center; justify-content:center;
+  background:hsl(var(--accent)); color:hsl(var(--muted-foreground)); border:1px solid hsl(var(--border));
+  border-radius:12px; font-size:18px; cursor:pointer; }
+
+/* ---------- Feed (hero) ---------- */
+.feed{ position:relative; flex:1; margin:12px 6px; border-radius:18px; overflow:hidden;
+  background:
+    radial-gradient(420px 520px at 50% 42%, hsl(220 18% 22%), hsl(220 16% 9%) 70%, hsl(220 18% 6%));
+  border:1px solid hsl(var(--border)); }
+/* simulated "subject" — a soft head/shoulders blob that grows as they approach */
+.subject{ position:absolute; left:50%; top:46%; width:300px; height:360px; transform:translate(-50%,-50%);
+  background:radial-gradient(48% 42% at 50% 38%, hsl(28 25% 58%/.55), transparent 70%),
+             radial-gradient(70% 60% at 50% 96%, hsl(220 14% 30%/.7), transparent 72%);
+  filter:blur(2px); transition:transform .9s cubic-bezier(.2,.7,.2,1), opacity .6s; }
+/* scanline + grain atmosphere */
+.scan{ position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(hsl(var(--primary)/0) 0%, hsl(var(--primary)/.12) 50%, hsl(var(--primary)/0) 100%);
+  height:120px; animation:scan 4.5s linear infinite; mix-blend-mode:screen; opacity:.6; }
+@keyframes scan{0%{transform:translateY(-140px);}100%{transform:translateY(720px);}}
+.grain{ position:absolute; inset:0; pointer-events:none; opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+/* viewfinder corner brackets */
+.bracket{ position:absolute; width:46px; height:46px; border:3px solid hsl(var(--primary)/.85); filter:var(--glow); }
+.bracket.tl{ left:18px; top:18px; border-right:none; border-bottom:none; border-radius:10px 0 0 0; }
+.bracket.tr{ right:18px; top:18px; border-left:none; border-bottom:none; border-radius:0 10px 0 0; }
+.bracket.bl{ left:18px; bottom:18px; border-right:none; border-top:none; border-radius:0 0 0 10px; }
+.bracket.br{ right:18px; bottom:18px; border-left:none; border-top:none; border-radius:0 0 10px 0; }
+
+/* detection bbox + landmarks (positioned/sized by JS, eased) */
+.bbox{ position:absolute; border:2.5px solid hsl(var(--success)); border-radius:12px;
+  box-shadow:0 0 0 1px hsl(0 0% 0%/.4), 0 0 18px hsl(var(--success)/.45);
+  transition:left .5s cubic-bezier(.2,.7,.2,1), top .5s cubic-bezier(.2,.7,.2,1),
+             width .5s cubic-bezier(.2,.7,.2,1), height .5s cubic-bezier(.2,.7,.2,1),
+             border-color .3s, box-shadow .3s, opacity .4s; }
+.bbox::before{ /* tracking label */
+  content:attr(data-label); position:absolute; left:0; top:-26px;
+  font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:hsl(var(--success)); background:hsl(0 0% 0%/.45); padding:2px 8px; border-radius:6px; }
+.bbox.searching{ border-color:hsl(var(--primary)); box-shadow:0 0 18px hsl(var(--primary)/.4);
+  border-style:dashed; animation:hunt 1.6s ease-in-out infinite; }
+.bbox.searching::before{ color:hsl(var(--primary)); }
+@keyframes hunt{0%,100%{opacity:.55;}50%{opacity:1;}}
+.lm{ position:absolute; width:7px; height:7px; border-radius:50%; background:hsl(var(--primary));
+  filter:var(--glow); transform:translate(-50%,-50%); }
+/* positioning guidance */
+.guide{ position:absolute; left:50%; bottom:34px; transform:translateX(-50%);
+  display:flex; align-items:center; gap:12px; padding:12px 22px; border-radius:14px;
+  background:hsl(0 0% 0%/.5); border:1px solid hsl(var(--border)); backdrop-filter:blur(6px);
+  font-size:20px; font-weight:700; letter-spacing:.01em; color:hsl(var(--foreground));
+  transition:opacity .3s; white-space:nowrap; }
+.guide .ar{ font-size:22px; color:hsl(var(--primary)); filter:var(--glow); }
+
+/* ---------- Verdict chip ---------- */
+.verdict{ flex:none; margin:0 6px; height:78px; border-radius:16px; display:flex; align-items:center;
+  justify-content:center; gap:16px; font-size:30px; font-weight:800; letter-spacing:.04em;
+  border:1px solid hsl(var(--border)); transition:all .35s; }
+.verdict .big{ display:inline-flex; align-items:center; gap:14px; }
+.verdict.searching{ background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); font-size:20px; letter-spacing:.08em; text-transform:uppercase; }
+.verdict.accept{ background:hsl(var(--success)/.13); color:hsl(var(--success));
+  border-color:hsl(var(--success)/.45); text-shadow:0 0 18px hsl(var(--success)/.5);
+  animation:pop .4s cubic-bezier(.2,1.4,.4,1); }
+.verdict.reject{ background:hsl(var(--destructive)/.12); color:hsl(var(--destructive));
+  border-color:hsl(var(--destructive)/.4); }
+.verdict .reason{ font-size:15px; font-weight:600; letter-spacing:0; opacity:.85; }
+@keyframes pop{0%{transform:scale(.96);}60%{transform:scale(1.02);}100%{transform:scale(1);}}
+
+/* ---------- Telemetry ---------- */
+.telem{ flex:none; margin:14px 6px 0; display:flex; flex-direction:column; gap:14px; }
+.tm{ display:grid; grid-template-columns:118px 1fr 96px; align-items:center; gap:14px; }
+.tm .name{ font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+.track{ position:relative; height:18px; border-radius:999px; background:hsl(var(--muted)); overflow:visible; }
+.fill{ position:absolute; left:0; top:0; bottom:0; border-radius:999px; transition:width .3s ease, background .3s;
+  background:hsl(var(--success)); box-shadow:0 0 14px hsl(var(--success)/.5); }
+.fill.bad{ background:hsl(var(--destructive)); box-shadow:0 0 14px hsl(var(--destructive)/.5); }
+.fill.warn{ background:hsl(var(--warning)); box-shadow:0 0 14px hsl(var(--warning)/.5); }
+.thresh{ position:absolute; top:-5px; bottom:-5px; width:3px; border-radius:2px; background:hsl(var(--foreground));
+  box-shadow:0 0 0 2px hsl(var(--background)); }
+.thresh::after{ content:attr(data-t); position:absolute; top:-19px; left:50%; transform:translateX(-50%);
+  font-size:10px; font-weight:700; color:hsl(var(--muted-foreground)); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.tm .val{ text-align:right; font-size:26px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+.tm .val.ok{ color:hsl(var(--success)); } .tm .val.bad{ color:hsl(var(--destructive)); } .tm .val.warn{ color:hsl(var(--warning)); }
+.tm .val small{ font-size:13px; font-weight:600; color:hsl(var(--muted-foreground)); }
+
+/* ---------- Action dock ---------- */
+.dock{ flex:none; margin:18px 6px 4px; display:flex; align-items:center; gap:14px; }
+.btn{ flex:1; height:64px; border-radius:16px; font:inherit; font-size:18px; font-weight:800;
+  letter-spacing:.02em; cursor:pointer; border:1px solid hsl(var(--border)); background:hsl(var(--accent));
+  color:hsl(var(--foreground)); display:inline-flex; align-items:center; justify-content:center; gap:10px; }
+.btn.primary{ background:hsl(var(--primary)); border-color:hsl(var(--primary)); color:hsl(var(--background));
+  box-shadow:0 0 26px hsl(var(--primary)/.3); }
+.refchip{ flex:none; height:64px; padding:0 20px; border-radius:16px; border:1px solid hsl(var(--border));
+  background:hsl(var(--card)); display:flex; flex-direction:column; justify-content:center; gap:2px; min-width:172px; }
+.refchip .k{ font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+.refchip .v{ font-size:15px; font-weight:700; color:hsl(var(--success)); display:flex; align-items:center; gap:7px; }
+
+/* ---------- Idle / connecting scenes ---------- */
+.center-scene{ position:absolute; inset:78px 6px 6px; display:none; flex-direction:column; align-items:center; justify-content:center; gap:26px; padding:60px; text-align:center; background:hsl(var(--background)); border-radius:18px; z-index:5; }
+.center-scene.show{ display:flex; }
+.kiosk[data-scene="idle"] .live-scene, .kiosk[data-scene="connecting"] .live-scene{ display:none; }
+.live-scene{ display:flex; flex-direction:column; flex:1; min-height:0; }
+.idle-mark{ width:96px; height:96px; border-radius:24px; background:hsl(var(--primary)/.12); border:1px solid hsl(var(--primary)/.4);
+  display:flex; align-items:center; justify-content:center; }
+.idle-mark .m{ width:34px; height:34px; border-radius:9px; background:hsl(var(--primary)); filter:var(--glow); }
+.idle-title{ font-size:34px; font-weight:800; letter-spacing:-.02em; margin:0; }
+.idle-sub{ font-size:16px; color:hsl(var(--muted-foreground)); max-width:440px; margin:0; line-height:1.5; }
+.go{ height:74px; padding:0 64px; font-size:21px; font-weight:800; border-radius:18px; cursor:pointer;
+  background:hsl(var(--primary)); color:hsl(var(--background)); border:none; box-shadow:0 0 34px hsl(var(--primary)/.4); }
+.target{ font-size:13px; color:hsl(var(--muted-foreground)); }
+.target b{ color:hsl(var(--foreground)); }
+.ring{ width:96px; height:96px; border-radius:50%; border:4px solid hsl(var(--muted));
+  border-top-color:hsl(var(--primary)); animation:spin 1s linear infinite; filter:var(--glow); }
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ---------- mockup scene switcher (not part of product) ---------- */
+.scenes{ position:fixed; left:18px; bottom:18px; display:flex; gap:8px; z-index:50;
+  background:hsl(0 0% 0%/.5); border:1px solid hsl(var(--border)); border-radius:12px; padding:8px; backdrop-filter:blur(6px); }
+.scenes span{ font-size:11px; color:hsl(var(--muted-foreground)); align-self:center; padding:0 6px; letter-spacing:.06em; text-transform:uppercase; }
+.scenes button{ font:inherit; font-size:12px; font-weight:700; color:hsl(var(--muted-foreground)); background:hsl(var(--muted));
+  border:1px solid hsl(var(--border)); border-radius:8px; padding:7px 13px; cursor:pointer; }
+.scenes button.on{ background:hsl(var(--primary)/.18); color:hsl(var(--primary)); border-color:hsl(var(--primary)/.5); }
+
+@media (prefers-reduced-motion:reduce){ *{animation:none!important;} }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="kiosk" id="kiosk" data-scene="live">
+
+    <!-- Status rail -->
+    <div class="rail">
+      <div class="brand"><span class="mark"></span>FacePod</div>
+      <div class="live-dot" id="liveDot"><span class="d"></span>Live</div>
+      <div class="spacer"></div>
+      <div class="seg">
+        <button class="on">Live</button>
+        <button>Manual</button>
+      </div>
+      <div class="icon" title="Settings">⚙</div>
+    </div>
+
+    <!-- IDLE scene -->
+    <div class="center-scene" id="sceneIdle">
+      <div class="idle-mark"><span class="m"></span></div>
+      <h1 class="idle-title">Ready when you are</h1>
+      <p class="idle-sub">Tap to bring the camera online and start watching for a face. No setup — the device default is pre-configured.</p>
+      <button class="go" onclick="setScene('connecting'); setTimeout(()=>setScene('live'),1900)">Go Live</button>
+      <p class="target">Transport <b>USB / FFI</b> · <b>HidFace.dll</b> · default camera</p>
+    </div>
+
+    <!-- CONNECTING scene -->
+    <div class="center-scene" id="sceneConnecting">
+      <div class="ring"></div>
+      <h1 class="idle-title" style="font-size:26px">Bringing the camera online…</h1>
+      <p class="idle-sub">Connecting to the module and opening the default camera.</p>
+    </div>
+
+    <!-- LIVE scene -->
+    <div class="live-scene">
+      <div class="feed" id="feed">
+        <div class="subject" id="subject"></div>
+        <div class="grain"></div>
+        <div class="scan"></div>
+        <div class="bracket tl"></div><div class="bracket tr"></div>
+        <div class="bracket bl"></div><div class="bracket br"></div>
+        <div class="bbox searching" id="bbox" data-label="searching">
+          <div class="lm" style="left:30%;top:38%"></div>
+          <div class="lm" style="left:70%;top:38%"></div>
+          <div class="lm" style="left:50%;top:58%"></div>
+          <div class="lm" style="left:34%;top:76%"></div>
+          <div class="lm" style="left:66%;top:76%"></div>
+        </div>
+        <div class="guide" id="guide"><span class="ar">⌖</span><span id="guideText">Step in front of the camera</span></div>
+      </div>
+
+      <div class="verdict searching" id="verdict"><span class="big" id="verdictText">Watching…</span></div>
+
+      <div class="telem">
+        <div class="tm">
+          <div class="name">Quality</div>
+          <div class="track"><div class="fill" id="qFill"></div><div class="thresh" id="qMark" data-t="min 70"></div></div>
+          <div class="val" id="qVal">—</div>
+        </div>
+        <div class="tm">
+          <div class="name">Liveness</div>
+          <div class="track"><div class="fill" id="lFill"></div><div class="thresh" id="lMark" data-t="max 50"></div></div>
+          <div class="val" id="lVal">—</div>
+        </div>
+        <div class="tm">
+          <div class="name">Match</div>
+          <div class="track"><div class="fill" id="mFill"></div><div class="thresh" id="mMark" data-t="min 70"></div></div>
+          <div class="val" id="mVal">—</div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <button class="btn primary" id="modeBtn">Continuous watch · ON</button>
+        <div class="refchip"><span class="k">Reference</span><span class="v">✓ set · in-memory</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="scenes">
+  <span>mockup scene</span>
+  <button onclick="setScene('idle')">Idle</button>
+  <button onclick="setScene('connecting')">Connecting</button>
+  <button class="on" onclick="setScene('live')">Live</button>
+</div>
+
+<script>
+// Fit the fixed 800×1280 kiosk into the viewport.
+function fit(){
+  const pad = 40;
+  const s = Math.min((innerWidth-pad)/800, (innerHeight-pad)/1280, 1);
+  document.getElementById('stage').style.transform = `scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+// Scene switching.
+let scene = 'live';
+function setScene(s){
+  scene = s;
+  document.getElementById('kiosk').dataset.scene = s;
+  document.getElementById('sceneIdle').classList.toggle('show', s==='idle');
+  document.getElementById('sceneConnecting').classList.toggle('show', s==='connecting');
+  document.getElementById('liveDot').style.visibility = s==='live' ? 'visible':'hidden';
+  document.querySelectorAll('.scenes button').forEach((b,i)=>b.classList.toggle('on',
+    (s==='idle'&&i===0)||(s==='connecting'&&i===1)||(s==='live'&&i===2)));
+  if(s==='live'){ t = 0; } // restart the approach sim
+}
+
+// ---- Simulated "face approaching" loop (drives the live HUD) ----
+const Q_MIN=0.70, SPOOF_MAX=0.50, M_MIN=0.70;
+let t = 0;
+const $ = id => document.getElementById(id);
+
+function jitter(base, amt){ return base + (Math.sin(t*2.3+base*9)+Math.sin(t*5.1)) * amt; }
+
+function setBar(fill, mark, val, value, threshold, higherPasses, label){
+  const pass = higherPasses ? value>=threshold : value<=threshold;
+  const margin = Math.abs(value-threshold);
+  const cls = pass ? (margin<0.06?'warn':'') : 'bad';
+  fill.className = 'fill ' + cls;
+  fill.style.width = Math.max(2, Math.min(100, value*100)) + '%';
+  mark.style.left = (threshold*100) + '%';
+  val.className = 'val ' + (pass ? (margin<0.06?'warn':'ok') : 'bad');
+  val.innerHTML = Math.round(value*100) + '<small>%</small>';
+  return pass;
+}
+
+function tick(){
+  t += 1/30;
+  if(scene!=='live'){ requestAnimationFrame(tick); return; }
+
+  // 9s cycle: 0–1.5 empty, 1.5–5 approaching, 5–7.5 locked/accept, 7.5–9 leaves.
+  const cycle = t % 9;
+  let present = cycle>1.5;
+  // approach progress 0→1 as they get closer/centred
+  let p = Math.max(0, Math.min(1, (cycle-1.5)/3.2));
+  if(cycle>7.5) p = Math.max(0, 1-(cycle-7.5)/1.5); // back away
+
+  const bbox=$('bbox'), guide=$('guide'), guideText=$('guideText'), verdict=$('verdict');
+
+  if(!present){
+    bbox.className='bbox searching'; bbox.dataset.label='searching';
+    bbox.style.opacity=0; guide.style.opacity=1;
+    guideText.textContent='Step in front of the camera'; guide.querySelector('.ar').textContent='⌖';
+    $('subject').style.opacity=0;
+    setBar($('qFill'),$('qMark'),$('qVal'),0,Q_MIN,true);
+    setBar($('lFill'),$('lMark'),$('lVal'),0,SPOOF_MAX,false);
+    setBar($('mFill'),$('mMark'),$('mVal'),0,M_MIN,true);
+    $('qVal').textContent='—'; $('lVal').textContent='—'; $('mVal').textContent='—';
+    verdict.className='verdict searching'; $('verdictText').textContent='Watching…';
+    requestAnimationFrame(tick); return;
+  }
+
+  // subject grows + centres with approach
+  $('subject').style.opacity=1;
+  $('subject').style.transform=`translate(-50%,-50%) scale(${0.7+p*0.75})`;
+
+  // bbox geometry tracks the subject (in % of feed)
+  const size = 26 + p*30;                 // % width
+  const cx = 50 + jitter(0,2.2)*(1-p);    // wobble settles as they centre
+  const cy = 44 + (1-p)*6 + jitter(0,1.5)*(1-p);
+  bbox.style.opacity=1;
+  bbox.style.width=size+'%'; bbox.style.height=(size*1.18)+'%';
+  bbox.style.left=(cx-size/2)+'%'; bbox.style.top=(cy-size*0.59)+'%';
+
+  // live metrics ramp with approach (+jitter), liveness spoof drops
+  const quality = Math.max(0.15, Math.min(0.97, p*0.95 + jitter(0,0.04)));
+  const spoof   = Math.max(0.04, Math.min(0.8, 0.62 - p*0.5 + jitter(0,0.03)));
+  const match   = Math.max(0.1,  Math.min(0.96, p*0.93 + jitter(0.3,0.05)));
+
+  const qP=setBar($('qFill'),$('qMark'),$('qVal'),quality,Q_MIN,true);
+  const lP=setBar($('lFill'),$('lMark'),$('lVal'),spoof,SPOOF_MAX,false);
+  const mP=setBar($('mFill'),$('mMark'),$('mVal'),match,M_MIN,true);
+
+  // guidance from "positioning" + lock state
+  if(p<0.45){ bbox.className='bbox'; bbox.dataset.label='face'; guide.style.opacity=1;
+    guideText.textContent='Move a little closer'; guide.querySelector('.ar').textContent='↑'; }
+  else if(p<0.85){ bbox.className='bbox'; bbox.dataset.label='face'; guide.style.opacity=1;
+    guideText.textContent='Hold still'; guide.querySelector('.ar').textContent='⌖'; }
+  else { bbox.className='bbox'; bbox.dataset.label='locked'; guide.style.opacity=0; }
+
+  const accept = qP&&lP&&mP&&p>0.85;
+  if(accept){ verdict.className='verdict accept'; $('verdictText').innerHTML='✓ ACCEPT'; }
+  else if(p>0.5){ verdict.className='verdict reject';
+    const why=[]; if(!qP)why.push('quality'); if(!lP)why.push('liveness'); if(!mP)why.push('match');
+    $('verdictText').innerHTML='✗ REJECT <span class="reason">'+(why.length?why.join(' · '):'aligning')+'</span>'; }
+  else { verdict.className='verdict searching'; $('verdictText').textContent='Acquiring…'; }
+
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
