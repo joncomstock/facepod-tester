@@ -15,6 +15,7 @@ import {
   type SessionStatus,
 } from "./api.ts";
 import { type CaptureThresholds } from "./components/CapturePanel.tsx";
+import { LiveView } from "./components/live/LiveView.tsx";
 import { ManualView } from "./components/manual/ManualView.tsx";
 
 function statePill(status: SessionStatus | null, busy: boolean, error: NormalizedError | null) {
@@ -224,7 +225,17 @@ export function App() {
             onCaptureAndMatch={handleCaptureAndMatch}
           />
         )
-        : <div className="live-placeholder">Live mode lands in Task 9.</div>}
+        : (
+          <LiveView
+            status={status}
+            thresholds={{
+              minimalQuality: thresholds.minimalQuality,
+              maximalSpoofScore: thresholds.maximalSpoofScore,
+              minimalMatchScore: minimalMatchScore,
+            }}
+            onError={setError}
+          />
+        )}
     </div>
   );
 }
