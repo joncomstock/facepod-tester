@@ -15,10 +15,11 @@ interface Props {
   status: SessionStatus | null;
   thresholds: LiveThresholds;
   onError: (e: NormalizedError) => void;
+  onSessionChange?: () => void;
 }
 
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
-export function LiveView({ status, thresholds, onError }: Props) {
+export function LiveView({ status, thresholds, onError, onSessionChange }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
   const [frame, setFrame] = useState<LiveFrame | null>(null);
@@ -54,6 +55,7 @@ export function LiveView({ status, thresholds, onError }: Props) {
         mockScenario: s.scenario,
       });
       await api.openCamera({});
+      onSessionChange?.();
       setScene("live");
       setWatching(true);
     } catch (e) {

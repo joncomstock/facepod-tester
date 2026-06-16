@@ -234,6 +234,7 @@ export function App() {
               minimalMatchScore: minimalMatchScore,
             }}
             onError={setError}
+            onSessionChange={refreshStatus}
           />
         )}
     </div>
