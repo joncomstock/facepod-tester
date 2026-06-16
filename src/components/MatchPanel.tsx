@@ -1,13 +1,7 @@
 import { useState } from "react";
 import type { ImageDatatype, MatchResult, ProcessResult, SessionStatus } from "../api.ts";
 import { JsonViewer } from "./JsonViewer.tsx";
-
-interface RefImage {
-  data: string;
-  datatype: ImageDatatype;
-  previewUrl: string;
-  fileName: string;
-}
+import { readImageFile, type ReadImageOk } from "../live/readImageFile.ts";
 
 interface Props {
   status: SessionStatus | null;
@@ -23,30 +17,6 @@ interface Props {
   onCaptureAndMatch: (image: { image: string; datatype: ImageDatatype }) => void;
 }
 
-function detectDatatype(mime: string, fileName: string): ImageDatatype | null {
-  if (mime === "image/png" || fileName.toLowerCase().endsWith(".png")) return "png";
-  if (mime === "image/jpeg" || /\.jpe?g$/i.test(fileName)) return "jpeg";
-  return null;
-}
-
-function readFile(file: File): Promise<RefImage | { error: string }> {
-  return new Promise((resolve) => {
-    const datatype = detectDatatype(file.type, file.name);
-    if (!datatype) {
-      resolve({ error: `Unsupported file type "${file.type || file.name}". Use PNG or JPEG.` });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      const base64 = url.split(",")[1] ?? "";
-      resolve({ data: base64, datatype, previewUrl: url, fileName: file.name });
-    };
-    reader.onerror = () => resolve({ error: "Could not read file." });
-    reader.readAsDataURL(file);
-  });
-}
-
 /** Step 05: upload + process a reference image, then match it to the live capture. */
 export function MatchPanel(props: Props) {
   const {
@@ -55,7 +25,7 @@ export function MatchPanel(props: Props) {
     onProcessReference, onMatch, onCaptureAndMatch,
   } = props;
 
-  const [ref, setRef] = useState<RefImage | null>(null);
+  const [ref, setRef] = useState<ReadImageOk | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
   const cameraOpen = status?.cameraOpen ?? false;
@@ -65,7 +35,7 @@ export function MatchPanel(props: Props) {
     setFileError(null);
     const file = e.target.files?.[0];
     if (!file) return;
-    const result = await readFile(file);
+    const result = await readImageFile(file);
     if ("error" in result) {
       setFileError(result.error);
       setRef(null);
