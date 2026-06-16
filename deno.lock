@@ -88,7 +88,8 @@
         "npm:react-dom@^18.3.1",
         "npm:react@^18.3.1",
         "npm:typescript@^5.6.3",
-        "npm:vite@^5.4.11"
+        "npm:vite@^5.4.11",
+        "npm:vitest@^2.1.9"
       ]
     }
   }
