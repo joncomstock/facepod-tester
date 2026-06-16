@@ -1,0 +1,69 @@
+import { barState } from "../../live/logic.ts";
+import type { LiveFrame, LiveThresholds, Verdict } from "../../live/types.ts";
+
+interface Props {
+  frame: LiveFrame | null;
+  thresholds: LiveThresholds;
+  hasReference: boolean;
+  verdict: Verdict;
+}
+
+function Bar(
+  { name, value, threshold, higherPasses, label }: {
+    name: string;
+    value: number | null;
+    threshold: number;
+    higherPasses: boolean;
+    label: string;
+  },
+) {
+  if (value === null) {
+    return (
+      <div className="tm">
+        <div className="name">{name}</div>
+        <div className="track"><div className="thresh" style={{ left: `${threshold * 100}%` }} data-t={label} /></div>
+        <div className="val muted">—</div>
+      </div>
+    );
+  }
+  const b = barState(value, threshold, higherPasses);
+  return (
+    <div className="tm">
+      <div className="name">{name}</div>
+      <div className="track">
+        <div className={`fill ${b.tone === "ok" ? "" : b.tone}`} style={{ width: `${b.pct}%` }} />
+        <div className="thresh" style={{ left: `${threshold * 100}%` }} data-t={label} />
+      </div>
+      <div className={`val ${b.tone === "ok" ? "ok" : b.tone}`}>
+        {Math.round(value * 100)}<small>%</small>
+      </div>
+    </div>
+  );
+}
+
+/** Three threshold-marker bars + the verdict chip (docs/UI-FEEDBACK.md §4). */
+export function Telemetry({ frame, thresholds, hasReference, verdict }: Props) {
+  const cls = verdict.state === "accept" ? "accept"
+    : verdict.state === "reject" ? "reject"
+    : "searching";
+  const label = verdict.state === "accept" ? "✓ ACCEPT"
+    : verdict.state === "reject" ? "✗ REJECT"
+    : verdict.state === "acquiring" ? "Acquiring…"
+    : "Watching…";
+  return (
+    <>
+      <div className={`verdict ${cls}`}>
+        <span className="big">{label}</span>
+        {verdict.reasons.length > 0 && (
+          <span className="reason">{verdict.reasons.join(" · ")}</span>
+        )}
+      </div>
+      <div className="telem">
+        <Bar name="Quality" value={frame?.quality ?? null} threshold={thresholds.minimalQuality} higherPasses label={`min ${Math.round(thresholds.minimalQuality * 100)}`} />
+        <Bar name="Liveness" value={frame ? frame.spoofScore : null} threshold={thresholds.maximalSpoofScore} higherPasses={false} label={`max ${Math.round(thresholds.maximalSpoofScore * 100)}`} />
+        <Bar name="Match" value={hasReference ? (frame?.matchScore ?? null) : null} threshold={thresholds.minimalMatchScore} higherPasses label={`min ${Math.round(thresholds.minimalMatchScore * 100)}`} />
+      </div>
+      {!hasReference && <p className="hint">Match needs a reference — set one in the dock below.</p>}
+    </>
+  );
+}
