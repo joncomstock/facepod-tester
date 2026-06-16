@@ -14,11 +14,8 @@ import {
   type ProcessResult,
   type SessionStatus,
 } from "./api.ts";
-import { DeviceConfigPanel } from "./components/DeviceConfigPanel.tsx";
-import { DeviceStatusPanel } from "./components/DeviceStatusPanel.tsx";
-import { CameraControls } from "./components/CameraControls.tsx";
-import { CapturePanel, type CaptureThresholds } from "./components/CapturePanel.tsx";
-import { MatchPanel } from "./components/MatchPanel.tsx";
+import { type CaptureThresholds } from "./components/CapturePanel.tsx";
+import { ManualView } from "./components/manual/ManualView.tsx";
 
 function statePill(status: SessionStatus | null, busy: boolean, error: NormalizedError | null) {
   if (busy) return { cls: "state-busy", label: "Busy" };
@@ -45,6 +42,8 @@ export function App() {
     timeoutMs: "",
   });
   const [minimalMatchScore, setMinimalMatchScore] = useState(0.7);
+
+  const [mode, setMode] = useState<"live" | "manual">("live");
 
   const refTemplate = referenceResult?.template?.data ?? null;
   const liveTemplate = captureResult?.template?.data ?? null;
@@ -145,7 +144,24 @@ export function App() {
     <div className="app">
       <header className="masthead">
         <h1>FacePod Tester</h1>
-        <span className="sub">Local hardware test utility · HID U.ARE.U Face Module</span>
+        <div className="mode-toggle" role="tablist" aria-label="View mode">
+          <button
+            role="tab"
+            aria-selected={mode === "live"}
+            className={mode === "live" ? "on" : ""}
+            onClick={() => setMode("live")}
+          >
+            Live
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === "manual"}
+            className={mode === "manual" ? "on" : ""}
+            onClick={() => setMode("manual")}
+          >
+            Manual
+          </button>
+        </div>
       </header>
 
       <div className="status-strip" role="status" aria-live="polite">
@@ -179,56 +195,36 @@ export function App() {
         </div>
       )}
 
-      <div className="grid">
-        <DeviceConfigPanel
-          status={status}
-          busy={busy}
-          onConnect={handleConnect}
-          onDisconnect={handleDisconnect}
-          onSetScenario={handleSetScenario}
-        />
-        <DeviceStatusPanel
-          status={status}
-          deviceInfo={deviceInfo}
-          cameras={cameras}
-          busy={busy}
-          onRefreshInfo={() => run(api.getDeviceInfo, (r) => setDeviceInfo(r.deviceInfo))}
-          onRefreshCameras={() => run(api.getCameras, (r) => setCameras(r.cameras))}
-        />
-        <CameraControls
-          status={status}
-          cameras={cameras}
-          busy={busy}
-          onOpen={(req) => run(() => api.openCamera(req))}
-          onClose={() => run(api.closeCamera)}
-        />
-        <CapturePanel
-          status={status}
-          busy={busy}
-          thresholds={thresholds}
-          onThresholdChange={(patch) => setThresholds((t) => ({ ...t, ...patch }))}
-          result={captureResult}
-          onCapture={handleCapture}
-        />
-        <MatchPanel
-          status={status}
-          busy={busy}
-          minimalMatchScore={minimalMatchScore}
-          onMinimalMatchScoreChange={setMinimalMatchScore}
-          referenceResult={referenceResult}
-          refTemplate={refTemplate}
-          liveTemplate={liveTemplate}
-          matchResult={matchResult}
-          onProcessReference={handleProcessReference}
-          onMatch={handleMatch}
-          onCaptureAndMatch={handleCaptureAndMatch}
-        />
-      </div>
-
-      <p className="hint" style={{ marginTop: 24 }}>
-        Workflow: connect → device info / cameras → open camera → upload &amp; process reference →
-        capture live face → match → close camera → disconnect.
-      </p>
+      {mode === "manual"
+        ? (
+          <ManualView
+            status={status}
+            busy={busy}
+            deviceInfo={deviceInfo}
+            cameras={cameras}
+            captureResult={captureResult}
+            referenceResult={referenceResult}
+            matchResult={matchResult}
+            refTemplate={refTemplate}
+            liveTemplate={liveTemplate}
+            thresholds={thresholds}
+            minimalMatchScore={minimalMatchScore}
+            onThresholdChange={(patch) => setThresholds((t) => ({ ...t, ...patch }))}
+            onMinimalMatchScoreChange={setMinimalMatchScore}
+            onConnect={handleConnect}
+            onDisconnect={handleDisconnect}
+            onSetScenario={handleSetScenario}
+            onRefreshInfo={() => run(api.getDeviceInfo, (r) => setDeviceInfo(r.deviceInfo))}
+            onRefreshCameras={() => run(api.getCameras, (r) => setCameras(r.cameras))}
+            onOpenCamera={(req) => run(() => api.openCamera(req))}
+            onCloseCamera={() => run(api.closeCamera)}
+            onCapture={handleCapture}
+            onProcessReference={handleProcessReference}
+            onMatch={handleMatch}
+            onCaptureAndMatch={handleCaptureAndMatch}
+          />
+        )
+        : <div className="live-placeholder">Live mode lands in Task 9.</div>}
     </div>
   );
 }

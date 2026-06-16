@@ -545,3 +545,9 @@ details.json pre {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; }
 }
+
+/* ---- Mode toggle (Live / Manual) ---- */
+.mode-toggle { display: inline-flex; gap: 2px; background: hsl(var(--muted)); border: 1px solid hsl(var(--border)); border-radius: 999px; padding: 3px; }
+.mode-toggle button { font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: hsl(var(--muted-foreground)); background: transparent; border: none; border-radius: 999px; padding: 6px 16px; cursor: pointer; }
+.mode-toggle button.on { background: hsl(var(--primary) / 0.16); color: hsl(var(--primary)); }
+.live-placeholder { color: hsl(var(--muted-foreground)); padding: 48px; text-align: center; }
