@@ -29,13 +29,19 @@ easily — click both and be running. All other settings hidden behind gear icon
 - The sticky status strip no longer prints the full DLL path — just transport + the DLL
   filename (full path on hover). (`src/App.tsx`)
 
-**Still worth doing (small):** auto-advance — after Connect, optionally auto-open the
-camera so it's truly one tap to "live." Left as a follow-up so the steps stay explicit
-for a *test* tool.
+**Still worth doing (small):** ~~auto-advance~~ — this follow-up is now the **one-tap
+Go Live** button (Live mode): a single tap connects, opens the camera, and starts the
+continuous watch loop. The Manual mode panels remain explicit for test/debug use.
 
 ---
 
 ## 2. Live camera feed
+
+> **Status (2026-06-16):** The Live HUD shell, continuous watch loop, telemetry bars,
+> ACCEPT/REJECT verdict, and derived positioning guidance are **implemented** in the
+> Live/Manual redesign. The detected-face image refreshed by the watch loop is the
+> current feed. Full-frame `HFGetVideoFrame` binding + bounding-box/landmark overlay
+> remain **Phase 2**, gated on a separate `hardware-libs` plan (items 1–2 in §6).
 
 **Ask:** after connect/open, show the live feed from the camera.
 
@@ -143,6 +149,11 @@ more live).
 ---
 
 ## 5. Proposed layout for 800 × 1280 (portrait)
+
+> **Status (2026-06-16):** Portrait layout, Live/Manual tabs (masthead toggle), HUD
+> shell, telemetry bars, verdict, and derived positioning guidance are **implemented**.
+> The feed area currently shows the detected-face image; the full-frame video region
+> with bbox/landmark overlay is **Phase 2** (separate `hardware-libs` plan).
 
 "Next to the feed" is tight at 800px wide, so stack **feed on top, stats below**, with
 the box/landmarks/guidance drawn **as an overlay on the feed** and the threshold bars

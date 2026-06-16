@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
   DeterministicMockClient,
   isMockScenario,
@@ -101,4 +101,18 @@ Deno.test("device-error: capture/process/match reject with FaceModuleApiError", 
   );
   // getInfo/getCameraList still succeed so you can connect, then see the error.
   assertEquals((await c.getInfo()).deviceId, "MOCK-FACEPOD-0001");
+});
+
+Deno.test("approach scenario ramps quality across successive captures", async () => {
+  const client = new DeterministicMockClient(() => "approach");
+  const first = await client.captureAndProcess({ minimalQuality: 0.7 });
+  const samples = [first.quality];
+  for (let i = 0; i < 12; i++) {
+    samples.push((await client.captureAndProcess({ minimalQuality: 0.7 })).quality);
+  }
+  // It starts low and reaches a high (>=0.9) quality within the ramp.
+  assert(samples[0] < 0.5, `expected low start, got ${samples[0]}`);
+  assert(samples.some((q) => q >= 0.9), "expected ramp to reach >=0.9");
+  // numberOfFaces is 1 once present.
+  assert((await client.captureAndProcess({ minimalQuality: 0.7 })).numberOfFaces <= 1);
 });

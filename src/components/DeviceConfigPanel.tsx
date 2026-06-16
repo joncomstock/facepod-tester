@@ -7,6 +7,12 @@ import {
   SCENARIO_LABELS,
   type SessionStatus,
 } from "../api.ts";
+import {
+  CONNECTION_DEFAULTS as DEFAULTS,
+  type ConnectionSettings as Settings,
+  loadConnectionSettings as loadSettings,
+  saveConnectionSettings,
+} from "../live/connectionSettings.ts";
 
 interface Props {
   status: SessionStatus | null;
@@ -23,27 +29,6 @@ interface Props {
  * localStorage so an operator's overrides survive reloads; they are applied at
  * connect time (transport can't change while connected).
  */
-const STORAGE_KEY = "facepod-tester.connection";
-
-/** Baked-in defaults for this device. The DLL path should rarely change; if it
- *  does, edit it in the Settings modal (persisted) — no code change needed.
- *  A blank dllPath falls back to the server's env default (FACEPOD_DLL_PATH). */
-const DEFAULTS = {
-  mock: false,
-  scenario: "good" as MockScenario,
-  dllPath: "C:\\Users\\Facepod\\Desktop\\FacePODDemo_MattWolfe\\HidFace.dll",
-  dllDir: "",
-  pollIntervalMs: "",
-};
-type Settings = typeof DEFAULTS;
-
-function loadSettings(): Settings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Settings>) };
-  } catch { /* corrupt/unavailable storage → fall back to defaults */ }
-  return { ...DEFAULTS };
-}
 
 function basename(path: string): string {
   const parts = path.trim().split(/[\\/]/);
@@ -62,9 +47,7 @@ export function DeviceConfigPanel(
 
   // Persist whenever settings change so overrides survive a reload.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch { /* storage unavailable — keep working in-memory */ }
+    saveConnectionSettings(settings);
   }, [settings]);
 
   // Close the modal on Escape.
