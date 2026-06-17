@@ -176,4 +176,8 @@ describe("guidanceFor", () => {
     const f = { ...baseFrame, numberOfFaces: 0, positioningFeedback: null };
     expect(guidanceFor(f)).toEqual({ text: "Step in front of the camera", derived: true });
   });
+  it("ignores real feedback when no face present and returns derived guidance", () => {
+    const f = { ...baseFrame, numberOfFaces: 0, positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 } };
+    expect(guidanceFor(f)).toEqual({ text: "Step in front of the camera", derived: true });
+  });
 });

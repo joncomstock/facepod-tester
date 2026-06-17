@@ -18,12 +18,13 @@ interface Props {
   onError: (e: NormalizedError) => void;
   onSessionChange?: () => void;
   deviceParams?: import("../../api.ts").DeviceParameters | null;
+  deviceParamsError?: string | null;
   onFetchParams?: () => Promise<void>;
   onClearParams?: () => void;
 }
 
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
-export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, onFetchParams, onClearParams }: Props) {
+export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
   const [frame, setFrame] = useState<LiveFrame | null>(null);
@@ -160,11 +161,15 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         onClearReference={() => setRefTemplate(null)}
         onEnd={endSession}
       />
-      {deviceParams && (
-        <p className="hint">
-          Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
-        </p>
-      )}
+      {deviceParams
+        ? (
+          <p className="hint">
+            Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
+          </p>
+        )
+        : deviceParamsError
+          ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
+          : null}
       <LiveDataDisclosure frame={frame} />
       <p className="hint">
         {guidanceDerived

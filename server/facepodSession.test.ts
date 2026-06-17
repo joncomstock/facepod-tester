@@ -177,6 +177,14 @@ Deno.test("getParameters throws when not connected", async () => {
   await assertRejects(() => s.getParameters());
 });
 
+Deno.test("getParameters throws when connected but camera not open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  // Camera not opened → #requireOpen() throws.
+  await assertRejects(() => s.getParameters());
+  await s.disconnect();
+});
+
 Deno.test("live mode (no override) routes through createFaceModuleFfi (USB/FFI only)", async () => {
   // Off Windows, the real FFI factory fails fast in resolveRealSdk — that error
   // proves the live path goes through createFaceModuleFfi, not any REST client.

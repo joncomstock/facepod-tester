@@ -110,7 +110,7 @@ export function positioningGuidance(fb: PositioningFeedback): string[] {
  */
 export function guidanceFor(frame: LiveFrame): { text: string | null; derived: boolean } {
   const fb = frame.positioningFeedback;
-  if (fb) {
+  if (fb && frame.numberOfFaces >= 1) {
     if (!fb.ok) {
       const parts = positioningGuidance(fb);
       return { text: parts.length ? parts.join(" · ") : "Hold still", derived: false };

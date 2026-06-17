@@ -219,7 +219,7 @@ Library / seam (`hardware-libs`), each gated by on-device confirmation:
      otherwise.
 
 Tester (this repo):
-5. New **Live panel**: feed + overlay canvas + threshold-marker bars + verdict.
+5. New **Live panel**: feed + overlay canvas (overlay canvas still Phase 2 — see §6 item 2) + threshold-marker bars + verdict.
 6. **Frame endpoint** (poll or SSE) + a small client render loop.
 7. **Reference-template management** (in-memory, session-only) to enable match %.
 8. **Derived-only** brightness/distance hints, clearly labeled, if wanted.

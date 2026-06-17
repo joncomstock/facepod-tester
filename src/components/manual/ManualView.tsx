@@ -42,6 +42,7 @@ interface Props {
   onMatch: () => void;
   onCaptureAndMatch: (image: { image: string; datatype: ImageDatatype }) => void;
   deviceParams?: import("../../api.ts").DeviceParameters | null;
+  deviceParamsError?: string | null;
   onFetchParams?: () => Promise<void>;
 }
 
@@ -96,6 +97,7 @@ export function ManualView(p: Props) {
         <DeviceParametersPanel
           status={p.status}
           params={p.deviceParams ?? null}
+          error={p.deviceParamsError ?? null}
           onRefresh={() => { void p.onFetchParams?.(); }}
         />
       </div>

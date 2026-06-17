@@ -47,7 +47,7 @@ export function App() {
 
   const [mode, setMode] = useState<"live" | "manual">("live");
 
-  const { params: deviceParams, fetchParams, clearParams } = useDeviceParameters();
+  const { params: deviceParams, error: deviceParamsError, fetchParams, clearParams } = useDeviceParameters();
 
   const refTemplate = referenceResult?.template?.data ?? null;
   const liveTemplate = captureResult?.template?.data ?? null;
@@ -229,6 +229,7 @@ export function App() {
             onMatch={handleMatch}
             onCaptureAndMatch={handleCaptureAndMatch}
             deviceParams={deviceParams}
+            deviceParamsError={deviceParamsError}
             onFetchParams={fetchParams}
           />
         )
@@ -243,6 +244,7 @@ export function App() {
             onError={setError}
             onSessionChange={refreshStatus}
             deviceParams={deviceParams}
+            deviceParamsError={deviceParamsError}
             onFetchParams={fetchParams}
             onClearParams={clearParams}
           />

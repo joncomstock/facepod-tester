@@ -3,6 +3,7 @@ import type { DeviceParameters, SessionStatus } from "../../api.ts";
 interface Props {
   status: SessionStatus | null;
   params: DeviceParameters | null;
+  error?: string | null;
   onRefresh: () => void;
 }
 
@@ -14,7 +15,7 @@ const GROUPS: { title: string; fields: (keyof DeviceParameters)[] }[] = [
 ];
 
 /** Read-only device parameters (HFParam reads). Refresh needs an open camera. */
-export function DeviceParametersPanel({ status, params, onRefresh }: Props) {
+export function DeviceParametersPanel({ status, params, error, onRefresh }: Props) {
   const cameraOpen = status?.cameraOpen ?? false;
   return (
     <section className="panel">
@@ -24,7 +25,12 @@ export function DeviceParametersPanel({ status, params, onRefresh }: Props) {
         {!cameraOpen && <span className="hint">Open the camera to read parameters.</span>}
       </div>
       {!params
-        ? <p className="empty">No parameters loaded.</p>
+        ? (
+          <>
+            {error && <p className="hint">Unavailable: {error}</p>}
+            <p className="empty">No parameters loaded.</p>
+          </>
+        )
         : GROUPS.map((g) => (
           <div key={g.title} style={{ marginBottom: 10 }}>
             <div className="modal-section-label" style={{ marginTop: 0 }}>{g.title}</div>
