@@ -194,13 +194,29 @@ beneath. This reads top-to-bottom on a portrait kiosk and keeps the feed large.
 
 Library / seam (`hardware-libs`), each gated by on-device confirmation:
 1. **Bind `HFGetVideoFrame`** + `getVideoFrame()` seam method (live feed source A).
+   → **Phase 2 — not yet consumed.**
 2. **Extend capture intermediate flags** to include quality / faces / bbox / landmarks /
    positioning_feedback, and surface them on the intermediate-result callback so the UI
    can render per-frame (today only `OPERATION_STATUS` is polled).
+   → **Phase 2 — not yet consumed.** Visual overlay on the feed frame is also Phase 2.
 3. **Add `positioningFeedback` + `landmarks` to `CaptureResult`** (decoded bits + points).
    Both are confirmed-available; see `track-b-probe-findings.md` §seam proposal.
+   → **✅ Consumed by the tester (Phase 2 lib, Tasks 1–10 of consume-phase2-params).**
+   - `positioningFeedback`: decoded strings drive the Live-mode guidance line
+     (real device strings shown with a "Guidance is from the device's positioning
+     feedback" hint; fallback label when absent).
+   - `landmarks`: present in the **Frame data** disclosure (data-only; no canvas overlay
+     yet — that remains Phase 2 item 2 above).
 4. (Optional) read-only `getParameters()` to show live thresholds in the UI; **no
    `setParameters` writes** until the separately-gated set-probe is approved.
+   → **✅ Consumed by the tester (Phase 2 lib, Tasks 1–10 of consume-phase2-params).**
+   - Parameters are read on session start (Live mode) and on demand via **Refresh** in
+     the Manual-mode **Device Parameters** panel.
+   - Threshold markers on the telemetry bars show a dashed amber **device** tick at the
+     live device threshold alongside the solid operator marker — reference-only; no
+     writes.
+   - Refresh requires an open camera (`cameraOpen: true`); the button is disabled
+     otherwise.
 
 Tester (this repo):
 5. New **Live panel**: feed + overlay canvas + threshold-marker bars + verdict.
