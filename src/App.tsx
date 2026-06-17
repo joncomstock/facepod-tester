@@ -244,6 +244,7 @@ export function App() {
             onSessionChange={refreshStatus}
             deviceParams={deviceParams}
             onFetchParams={fetchParams}
+            onClearParams={clearParams}
           />
         )}
     </div>
