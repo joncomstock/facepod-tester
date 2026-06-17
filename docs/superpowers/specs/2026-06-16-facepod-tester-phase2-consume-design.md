@@ -75,10 +75,18 @@ interface CaptureResult {
 interface Landmark { type?: string; x: number; y: number }  // SOURCE-FRAME coords
 ```
 
-Verified: `getParameters()` on the facade (`faceModule.ts:48`); **requires an open camera**
-(`faceModule.ts:49` `#requireOpen()`, `hidFaceFfiClient.ts:64`) — validates "fetch on Go
-Live (camera online)". Re-exported from `mod.ts:64-86`. Null/mock seam returns
-`zeroDeviceParameters()` (`client.ts:47`).
+Verified: `getParameters()` on the facade (`faceModule.ts:48`); **requires an open camera** —
+the facade guard `#requireOpen()` (`faceModule.ts:49`) fires first on the tester's call path
+(`this.#require().device.getParameters()`), with defense-in-depth in the FFI client
+(`hidFaceFfiClient.ts:65`). Validates "fetch on Go Live (camera online)". Re-exported from
+`mod.ts:64-86`. Null/mock seam returns `zeroDeviceParameters()` (`client.ts:47`).
+Pure HFGetParam reads are "safe outside the #enterOp lock" at the lib layer
+(`hidFaceFfiClient.ts:66`) — but the tester's own `#track` busy-lock still serializes them
+against the watch loop (see §6).
+
+**`Landmark.type` stays `string`:** `src/api.ts:72` already types it loosely; this is
+**retained intentionally** (landmarks are data-only here, §4.5). Do NOT tighten it to the
+lib's `LandmarkType` union when adding the other types.
 
 ### Current tester seams (verified)
 
@@ -139,10 +147,11 @@ Live (camera online)". Re-exported from `mod.ts:64-86`. Null/mock seam returns
 - Mock (`server/mockClient.ts`): deterministic `getParameters()` returning a realistic
   `DeviceParameters` with values **distinct from the UI defaults** so the reference tick is
   visibly offset (e.g. `recMinVerifyTemplateQuality: 0.65`, `recMaxSpoofProbability: 0.5`,
-  `recMinMatchScoreL1: 0.8`, plausible others). Add `positioningFeedback` + `landmarks` to
-  capture fixtures; the `approach` scenario ramps an **on-device-confirmed** corrective bit
-  (e.g. `TURN_RIGHT(4)` or `LOWER_HEAD(32)`) → `ok`, NOT the never-observed distance bits.
-  Label the fixture as synthetic in a comment.
+  `recMinMatchScoreL1: 0.8`, plausible others). **Landmarks already exist in the mock
+  fixtures** (`mockClient.ts:154-158,191-195`) — the new fixture work is adding
+  `positioningFeedback` (absent today) to the capture results; the `approach` scenario ramps
+  an **on-device-confirmed** corrective bit (e.g. `TURN_RIGHT(4)` or `LOWER_HEAD(32)`) → `ok`,
+  NOT the never-observed distance bits. Label the fixture as synthetic in a comment.
 
 ### 4.2 UI data layer (`src/api.ts`)
 
@@ -164,21 +173,48 @@ Live (camera online)". Re-exported from `mod.ts:64-86`. Null/mock seam returns
 
 ### 4.4 Device-parameters reference (read-only)
 
-- `useDeviceParameters` hook (or LiveView/App state): `params`, `error`, `refresh()`. Fetch
-  sequenced in `goLive` after `openCamera`, before `setWatching(true)`. Clear on
-  disconnect/End session. `refresh()` retries on `BusyError`.
-- **Live bars:** verdict + operator markers UNCHANGED. Add an optional secondary "device" tick
-  for the three recognition thresholds (quality←`recMinVerifyTemplateQuality`,
-  spoof←`recMaxSpoofProbability`, match←`recMinMatchScoreL1`) — distinct style, labeled
-  "device". Only these three are 0..1; do NOT feed other params into bar math.
+- **State owner: `App`**, via a `useDeviceParameters(api)` hook exposing
+  `{ params, error, fetch(), clear() }`. `App` already owns `status`, `thresholds`, and the
+  mode toggle, and **both** Live and Manual need the params — so one shared cache lives in
+  `App`, passed down to `LiveView` and `ManualView`. (Rejected: LiveView-local state, which
+  Manual couldn't read.)
+- **Fetch triggers:**
+  - **Live:** `goLive` calls `fetch()` after `openCamera` succeeds and **before**
+    `setWatching(true)` — the busy-lock is free there (`LiveView.tsx:57-60`).
+  - **Manual:** the panel's **Refresh** button is the only trigger; it is **disabled unless
+    `status.cameraOpen`** (getParameters requires an open camera). A Refresh with the camera
+    closed is prevented by the disabled state; any mapped error still renders as the non-fatal
+    "unavailable" note, never a hard failure.
+- **Cache clear:** `clear()` is called from BOTH reset paths — `LiveView.endSession`
+  (`LiveView.tsx:69-80`) and Manual `handleDisconnect` (`App.tsx:105-112`) — since either can
+  end the session.
+- **Live bars (`Telemetry.tsx` `Bar`):** verdict + operator markers UNCHANGED. Add a new
+  optional `deviceThreshold?: number` prop to `Bar` rendering a **second, visually distinct**
+  "device" tick for the three recognition thresholds: quality←`recMinVerifyTemplateQuality`
+  and match←`recMinMatchScoreL1` (floors, like their operator markers), spoof←
+  `recMaxSpoofProbability` (a **ceiling/max** marker, matching the Liveness bar's
+  `higherPasses={false}`). Only these three are 0..1; do NOT feed any other params into bar
+  math.
 - **Manual mode:** read-only **DeviceParametersPanel** — grouped table (recognition / camera /
   geometry / exposure) rendering raw values as-is (ints/ms shown plainly, NOT via `barState`),
-  with a Refresh button.
+  with the Refresh button (gated as above).
 
 ### 4.5 Landmarks/bbox data surface
 
-In the capture data/debug disclosure: face count, bbox (x/y/w/h), landmark count + points,
-`positioningFeedback` raw/flags/unknownBits. No overlay; capture-only.
+New **`LiveDataDisclosure`** component (collapsible, rendered in `LiveView` below the
+Telemetry/ActionDock; Live mode has no data disclosure today). Shows, from the current
+`LiveFrame` (which §4.3 extends with `landmarks` + `positioningFeedback`): face count, bbox
+(x/y/w/h), landmark count + points, and `positioningFeedback` raw/flags/unknownBits. No
+overlay; capture-only.
+
+### 4.6 Places new fields must be threaded (checklist)
+
+`server/mockClient.ts` (getParameters + positioningFeedback) · `server/facepodSession.ts`
+(getParameters method) · `server/main.ts` (route) · `src/api.ts` (types + getParameters +
+CaptureResult field) · `src/live/types.ts` (LiveFrame fields) · `src/live/logic.ts`
+(toLiveFrame + positioningGuidance + guidanceFor) · `src/components/live/Telemetry.tsx`
+(Bar `deviceThreshold` prop) · new `LiveDataDisclosure` · new `DeviceParametersPanel` ·
+`src/App.tsx` (useDeviceParameters owner + clear wiring) · `LiveView`/`ManualView` (props).
 
 ## 5. Data flow
 
@@ -193,8 +229,12 @@ DeviceParametersPanel` (gate thresholds untouched)
 - `/api/parameters` not-connected → 409; camera-not-open → mapped error. **UI: params fetch
   failure is non-fatal** — bars render with operator thresholds only (no device tick); a small
   "device parameters unavailable" note shows; Refresh can retry.
-- Params fetch vs watch loop: avoided by sequencing before the loop starts; Refresh tolerates
-  `BusyError` (retry once after a tick).
+- Params fetch vs watch loop: the **initial** Live fetch is contention-free (sequenced before
+  `setWatching(true)`). A **Refresh during Live watching** would race the ~150ms capture loop
+  for the `#track` lock, and a single retry can't guarantee a gap — so Refresh in Live
+  **pauses the watch loop** for the fetch: `setWatching(false)` → `fetch()` →
+  `setWatching(true)` (deterministic, no 409). In Manual mode there is no loop, so Refresh
+  fetches directly (gated on `cameraOpen`).
 - Guidance falls back to derived when `positioningFeedback` absent.
 
 ## 7. Testing
