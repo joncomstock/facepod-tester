@@ -79,7 +79,7 @@ Deno.test("getParameters returns realistic params distinct from UI defaults", as
   assertEquals(p.recMaxSpoofProbability, 0.45);
   assertEquals(p.recMinMatchScoreL1, 0.8);
   assertEquals(p.encodingJpegQuality, 90);
-  // 33 fields populated (no undefined).
+  // all 34 fields populated (no undefined).
   assertEquals(Object.values(p).some((v) => v === undefined), false);
 });
 ```
@@ -248,30 +248,26 @@ git commit -m "feat(tester): add positioningFeedback to mock capture fixtures"
 
 - [ ] **Step 1: Write the failing test**
 
-Look at the top of `server/facepodSession.test.ts` to reuse its existing helper that builds a
-session backed by the mock lifecycle (the same one its connect/capture tests use). Add:
+The existing `server/facepodSession.test.ts` builds sessions **inline** with `new
+FacePodSession()` and a module-level `const MOCK_CONFIG: ResolvedConfig = { mock: true,
+mockScenario: "good" }` (lines 10-19) — there is no factory helper; follow that exact pattern.
+`assertEquals`/`assertRejects` are already imported (line 1). Add:
 
 ```ts
 Deno.test("getParameters returns device parameters when camera open", async () => {
-  const session = newMockSession(); // reuse the file's existing mock-session helper
-  await session.connect(mockConfig());        // reuse existing config helper
-  await session.openCamera({});
-  const p = await session.getParameters();
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getParameters();
   assertEquals(p.recMinVerifyTemplateQuality, 0.65);
 });
 
 Deno.test("getParameters throws when not connected", async () => {
-  const session = newMockSession();
-  await assertRejects(() => session.getParameters());
+  const s = new FacePodSession();
+  // No connect → #require() throws NotConnectedError.
+  await assertRejects(() => s.getParameters());
 });
 ```
-
-Ensure `assertEquals` and `assertRejects` are imported from `@std/assert` at the top of the
-file (add whichever is missing to the existing import line).
-
-Match the exact helper/config names already used in this test file (e.g. the factory that
-injects a `FaceModuleLifecycle` over `DeterministicMockClient`). If the file builds sessions
-inline rather than via a helper, follow that same inline pattern.
 
 - [ ] **Step 2: Run test to verify it fails**
 

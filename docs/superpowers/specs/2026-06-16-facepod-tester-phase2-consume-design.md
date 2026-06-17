@@ -17,7 +17,7 @@ image, three threshold bars (Quality / Liveness / Match), an ACCEPT/REJECT verdi
 
 - **Item 3 — DONE:** `CaptureResult.positioningFeedback` (decoded `HFPositioningFeedback`
   bitmask) and `CaptureResult.landmarks` (5 points), available on the **final** capture result.
-- **Item 4 — DONE:** read-only `getParameters()` → `DeviceParameters` (~33 device config
+- **Item 4 — DONE:** read-only `getParameters()` → `DeviceParameters` (34 device config
   fields incl. the device's real recognition thresholds).
 
 NOT yet landed (still Phase 2, separate `hardware-libs` plan — **out of scope here**):
@@ -58,7 +58,7 @@ interface PositioningFeedback {
 // POSITIONING_BITS (hidFaceAbi.ts:142): GET_CLOSER(1) MOVE_AWAY(2) TURN_RIGHT(4)
 //   TURN_LEFT(8) LIFT_HEAD(16) LOWER_HEAD(32) TILT_RIGHT(64) TILT_LEFT(128)
 
-interface DeviceParameters { /* 33 numeric fields; recognition thresholds: */
+interface DeviceParameters { /* 34 numeric fields; recognition thresholds: */
   recMinVerifyTemplateQuality: number;  // device's configured quality threshold
   recMaxSpoofProbability: number;       // device's configured spoof ceiling
   recMinMatchScoreL1: number;           // device's configured match floor (L1/L2/L3 exist)
@@ -233,7 +233,8 @@ DeviceParametersPanel` (gate thresholds untouched)
   `setWatching(true)`). A **Refresh during Live watching** would race the ~150ms capture loop
   for the `#track` lock, and a single retry can't guarantee a gap — so Refresh in Live
   **pauses the watch loop** for the fetch: `setWatching(false)` → `fetch()` →
-  `setWatching(true)` (deterministic, no 409). In Manual mode there is no loop, so Refresh
+  `setWatching(true)` (avoids the 409 race; worst case is a transient `BusyError` retry, which
+  the loop and the non-fatal params fetch both tolerate). In Manual mode there is no loop, so Refresh
   fetches directly (gated on `cameraOpen`).
 - Guidance falls back to derived when `positioningFeedback` absent.
 
