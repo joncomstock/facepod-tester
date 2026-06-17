@@ -75,6 +75,51 @@ export interface Landmark {
   y: number;
 }
 
+export interface PositioningFeedback {
+  raw: number;
+  ok: boolean;
+  flags: string[];
+  unknownBits: number;
+}
+
+/** Read-only device configuration (HFParam reads). All fields always populated. */
+export interface DeviceParameters {
+  captureImageEncoding: number;
+  streamMode: number;
+  captureMode: number;
+  recMaxSpoofProbability: number;
+  recMinEnrollTemplateQuality: number;
+  recMinVerifyTemplateQuality: number;
+  recMinMatchScoreL1: number;
+  recMinMatchScoreL2: number;
+  recMinMatchScoreL3: number;
+  cameraEnableHighRes: number;
+  cameraSuspend: number;
+  cameraIdleTimeoutMs: number;
+  cameraEncodingAcceleration: number;
+  cameraLowPowerMode: number;
+  cameraLowPowerTimeoutMs: number;
+  faceSelectPolicy: number;
+  minDistance: number;
+  maxDistance: number;
+  minRoll: number;
+  maxRoll: number;
+  minPitch: number;
+  maxPitch: number;
+  minYaw: number;
+  maxYaw: number;
+  margin: number;
+  onlyCenteredFaces: number;
+  maxResults: number;
+  dayToNightThreshold: number;
+  nightToDayThreshold: number;
+  dayToNightViscosity: number;
+  nightToDayViscosity: number;
+  aeBoundingBoxTimeoutMs: number;
+  captureStabilization: number;
+  encodingJpegQuality: number;
+}
+
 export interface CaptureResult {
   quality: number;
   numberOfFaces: number;
@@ -83,6 +128,7 @@ export interface CaptureResult {
   liveness: Liveness;
   boundingBox?: BoundingBox;
   landmarks?: Landmark[];
+  positioningFeedback?: PositioningFeedback;
   isCaptured: boolean;
   faceStatus?: string;
 }
@@ -217,6 +263,8 @@ export const api = {
   getDeviceInfo: () => request<{ deviceInfo: DeviceInfo }>("/api/device-info"),
 
   getCameras: () => request<{ cameras: CameraInfo[] }>("/api/cameras"),
+
+  getParameters: () => request<{ parameters: DeviceParameters }>("/api/parameters"),
 
   openCamera: (req: {
     cameraId?: string;
