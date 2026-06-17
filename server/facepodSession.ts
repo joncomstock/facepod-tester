@@ -17,6 +17,7 @@ import {
   type CaptureResult,
   createFaceModuleFfi,
   type DeviceInfo,
+  type DeviceParameters,
   type FaceImage,
   FaceModuleLifecycle,
   FaceModuleStatusCodes,
@@ -250,6 +251,10 @@ export class FacePodSession {
 
   getCameras() {
     return this.#track(() => this.#require().device.getCameraList());
+  }
+
+  getParameters(): Promise<DeviceParameters> {
+    return this.#track(() => this.#require().device.getParameters());
   }
 
   /** Idempotent: opening an already-open camera is a no-op (never double-open). */

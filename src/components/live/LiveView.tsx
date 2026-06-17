@@ -3,11 +3,12 @@ import { api, ApiError, type NormalizedError, type SessionStatus } from "../../a
 import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
-import { computeVerdict, deriveGuidance } from "../../live/logic.ts";
+import { computeVerdict, guidanceFor } from "../../live/logic.ts";
 import type { LiveFrame, LiveThresholds } from "../../live/types.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
+import { LiveDataDisclosure } from "./LiveDataDisclosure.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -16,10 +17,14 @@ interface Props {
   thresholds: LiveThresholds;
   onError: (e: NormalizedError) => void;
   onSessionChange?: () => void;
+  deviceParams?: import("../../api.ts").DeviceParameters | null;
+  deviceParamsError?: string | null;
+  onFetchParams?: () => Promise<void>;
+  onClearParams?: () => void;
 }
 
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
-export function LiveView({ status, thresholds, onError, onSessionChange }: Props) {
+export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
   const [frame, setFrame] = useState<LiveFrame | null>(null);
@@ -29,7 +34,9 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
   const verdict = frame
     ? computeVerdict(frame, thresholds, hasReference)
     : { state: "searching" as const, reasons: [] };
-  const guidance = frame ? deriveGuidance(frame) : "Step in front of the camera";
+  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
+  const guidance = g.text;
+  const guidanceDerived = g.derived;
 
   useWatchLoop({
     active: watching && scene === "live",
@@ -41,6 +48,12 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
       onError(e);
     },
   });
+
+  const refreshParams = useCallback(async () => {
+    setWatching(false);          // free the device lock
+    await onFetchParams?.();
+    setWatching(true);
+  }, [onFetchParams]);
 
   const goLive = useCallback(async () => {
     setScene("connecting");
@@ -55,6 +68,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
         mockScenario: s.scenario,
       });
       await api.openCamera({});
+      await onFetchParams?.(); // params need an open camera; loop not started yet → no lock contention
       onSessionChange?.();
       setScene("live");
       setWatching(true);
@@ -76,8 +90,9 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
     setFrame(null);
     setRefTemplate(null);
     setScene("idle");
+    onClearParams?.();
     onSessionChange?.();
-  }, [onError, onSessionChange]);
+  }, [onError, onSessionChange, onClearParams]);
 
   useEffect(() => {
     if (!watching) setFrame(null);
@@ -137,7 +152,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
   return (
     <div className="live-shell">
       <Feed frame={frame} verdict={verdict} guidance={guidance} />
-      <Telemetry frame={frame} thresholds={thresholds} hasReference={hasReference} verdict={verdict} />
+      <Telemetry frame={frame} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
       <ActionDock
         watching={watching}
         hasReference={hasReference}
@@ -146,7 +161,21 @@ export function LiveView({ status, thresholds, onError, onSessionChange }: Props
         onClearReference={() => setRefTemplate(null)}
         onEnd={endSession}
       />
-      <p className="hint">Guidance is derived in-UI from face size/status, not HID-measured.</p>
+      {deviceParams
+        ? (
+          <p className="hint">
+            Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
+          </p>
+        )
+        : deviceParamsError
+          ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
+          : null}
+      <LiveDataDisclosure frame={frame} />
+      <p className="hint">
+        {guidanceDerived
+          ? "Guidance is derived in-UI from face size/status, not HID-measured."
+          : "Guidance is from the device's positioning feedback."}
+      </p>
     </div>
   );
 }

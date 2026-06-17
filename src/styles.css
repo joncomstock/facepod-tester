@@ -607,6 +607,9 @@ details.json pre {
 .thresh { position: absolute; top: -5px; bottom: -5px; width: 3px; border-radius: 2px; background: hsl(var(--foreground)); box-shadow: 0 0 0 2px hsl(var(--background)); }
 .thresh::after { content: attr(data-t); position: absolute; top: -19px; left: 50%; transform: translateX(-50%);
   font-size: 10px; font-weight: 700; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.track .thresh-device { position: absolute; top: -5px; bottom: -5px; width: 0; border-left: 2px dashed hsl(var(--warning)); opacity: 0.8; }
+.track .thresh-device::after { content: "device"; position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; letter-spacing: 0.04em; color: hsl(var(--warning)); }
 .tm .val { text-align: right; font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .tm .val.ok { color: hsl(var(--success)); } .tm .val.bad { color: hsl(var(--destructive)); } .tm .val.warn { color: hsl(var(--warning)); }
 .tm .val.muted { color: hsl(var(--muted-foreground)); }

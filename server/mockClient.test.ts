@@ -116,3 +116,29 @@ Deno.test("approach scenario ramps quality across successive captures", async ()
   // numberOfFaces is 1 once present.
   assert((await client.captureAndProcess({ minimalQuality: 0.7 })).numberOfFaces <= 1);
 });
+
+Deno.test("approach scenario emits real positioning feedback then OK", async () => {
+  const client = new DeterministicMockClient(() => "approach");
+  const opts = { minimalQuality: 0.7, maximalSpoofScore: 0.5 };
+  const frames = [];
+  for (let i = 0; i < 16; i++) frames.push(await client.captureAndProcess(opts));
+  // While approaching (face present, not yet locked) → corrective TURN_RIGHT bit.
+  const correcting = frames.find((f) => f.numberOfFaces === 1 && !f.isCaptured);
+  assertEquals(correcting?.positioningFeedback?.flags, ["TURN_RIGHT"]);
+  assertEquals(correcting?.positioningFeedback?.raw, 4);
+  // Once locked (captured) → OK (raw 0, no flags).
+  const locked = frames.find((f) => f.isCaptured);
+  assertEquals(locked?.positioningFeedback?.ok, true);
+  assertEquals(locked?.positioningFeedback?.flags, []);
+});
+
+Deno.test("getParameters returns realistic params distinct from UI defaults", async () => {
+  const client = new DeterministicMockClient(() => "good");
+  const p = await client.getParameters();
+  assertEquals(p.recMinVerifyTemplateQuality, 0.65);
+  assertEquals(p.recMaxSpoofProbability, 0.45);
+  assertEquals(p.recMinMatchScoreL1, 0.8);
+  assertEquals(p.encodingJpegQuality, 90);
+  // all 34 fields populated (no undefined).
+  assertEquals(Object.values(p).some((v) => v === undefined), false);
+});

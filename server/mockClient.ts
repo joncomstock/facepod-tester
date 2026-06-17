@@ -16,6 +16,7 @@ import {
   type CaptureOptions,
   type CaptureResult,
   type DeviceInfo,
+  type DeviceParameters,
   type FaceImage,
   FaceModuleApiError,
   type FaceModuleClient,
@@ -113,6 +114,26 @@ export class DeterministicMockClient implements FaceModuleClient {
     ]);
   }
 
+  getParameters(): Promise<DeviceParameters> {
+    // Deterministic device config. Values chosen DISTINCT from the UI defaults
+    // (0.7/0.5/0.7) so the reference ticks are visibly offset in the demo.
+    return Promise.resolve({
+      captureImageEncoding: 1, streamMode: 0, captureMode: 1,
+      recMaxSpoofProbability: 0.45, recMinEnrollTemplateQuality: 0.7,
+      recMinVerifyTemplateQuality: 0.65,
+      recMinMatchScoreL1: 0.8, recMinMatchScoreL2: 0.9, recMinMatchScoreL3: 0.95,
+      cameraEnableHighRes: 1, cameraSuspend: 0, cameraIdleTimeoutMs: 30000,
+      cameraEncodingAcceleration: 1, cameraLowPowerMode: 0, cameraLowPowerTimeoutMs: 60000,
+      faceSelectPolicy: 0,
+      minDistance: 0.3, maxDistance: 1.0, minRoll: -15, maxRoll: 15,
+      minPitch: -15, maxPitch: 15, minYaw: -15, maxYaw: 15,
+      margin: 20, onlyCenteredFaces: 1, maxResults: 1,
+      dayToNightThreshold: 30, nightToDayThreshold: 60,
+      dayToNightViscosity: 5, nightToDayViscosity: 5,
+      aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
+    });
+  }
+
   openCameraContext(_opts?: OpenContextOptions): Promise<void> {
     return Promise.resolve();
   }
@@ -144,6 +165,7 @@ export class DeterministicMockClient implements FaceModuleClient {
       const spoofScore = Math.round((0.6 - p * 0.5) * 100) / 100;
       const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
       const side = Math.round(120 + p * 120);
+      const captured = quality >= opts.minimalQuality && passed;
       return Promise.resolve({
         quality,
         numberOfFaces: 1,
@@ -156,7 +178,11 @@ export class DeterministicMockClient implements FaceModuleClient {
           { type: "right_eye", x: 170, y: 110 },
           { type: "nose", x: 130, y: 160 },
         ],
-        isCaptured: quality >= opts.minimalQuality && passed,
+        // Synthetic: corrective TURN_RIGHT while framing, OK once locked.
+        positioningFeedback: captured
+          ? { raw: 0, ok: true, flags: [], unknownBits: 0 }
+          : { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 },
+        isCaptured: captured,
         faceStatus: passed ? "ok" : "spoof_suspected",
       });
     }
@@ -193,6 +219,8 @@ export class DeterministicMockClient implements FaceModuleClient {
         { type: "right_eye", x: 170, y: 110 },
         { type: "nose", x: 130, y: 160 },
       ],
+      // Steady face is well-positioned; spoof fails on liveness, not geometry.
+      positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
       isCaptured: quality >= opts.minimalQuality && passed,
       faceStatus: passed ? "ok" : "spoof_suspected",
     });

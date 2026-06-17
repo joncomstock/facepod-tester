@@ -126,6 +126,7 @@ Deno.test("failed connect leaves no live session and disposes the client", async
       );
     },
     getCameraList: () => Promise.resolve([]),
+    getParameters: () => Promise.resolve({} as never),
     openCameraContext: () => Promise.resolve(),
     closeCameraContext: () => Promise.resolve(),
     captureAndProcess: () =>
@@ -160,6 +161,28 @@ Deno.test("failed connect leaves no live session and disposes the client", async
   assertEquals(s.connected, false);
   assertEquals(s.status().status, "disconnected");
   assertEquals(closed, true, "client.close() should have run during cleanup");
+});
+
+Deno.test("getParameters returns device parameters when camera open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getParameters();
+  assertEquals(p.recMinVerifyTemplateQuality, 0.65);
+});
+
+Deno.test("getParameters throws when not connected", async () => {
+  const s = new FacePodSession();
+  // No connect → #require() throws NotConnectedError.
+  await assertRejects(() => s.getParameters());
+});
+
+Deno.test("getParameters throws when connected but camera not open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  // Camera not opened → #requireOpen() throws.
+  await assertRejects(() => s.getParameters());
+  await s.disconnect();
 });
 
 Deno.test("live mode (no override) routes through createFaceModuleFfi (USB/FFI only)", async () => {
