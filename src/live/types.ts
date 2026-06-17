@@ -1,4 +1,5 @@
 /** Shared types for the Live HUD. Pure data — no React/DOM. */
+import type { Landmark, PositioningFeedback } from "../api.ts";
 
 export interface LiveThresholds {
   /** Quality passes when value >= this. */
@@ -23,6 +24,10 @@ export interface LiveFrame {
   /** null when no reference template is loaded. */
   matchScore: number | null;
   matchPassed: boolean | null;
+  /** Decoded positioning feedback when the device/mock reported it; null otherwise. */
+  positioningFeedback: PositioningFeedback | null;
+  /** Source-frame landmark points (data only, not drawn in v1). */
+  landmarks: Landmark[] | null;
 }
 
 export type VerdictState = "searching" | "acquiring" | "accept" | "reject";

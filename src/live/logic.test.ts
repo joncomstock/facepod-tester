@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, toLiveFrame } from "./logic.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, positioningGuidance, toLiveFrame } from "./logic.ts";
 import type { LiveFrame, LiveThresholds } from "./types.ts";
 
 const baseCapture: CaptureResult = {
@@ -64,9 +64,18 @@ function frame(over: Partial<LiveFrame> = {}): LiveFrame {
     isCaptured: true,
     matchScore: null,
     matchPassed: null,
+    positioningFeedback: null,
+    landmarks: null,
     ...over,
   };
 }
+
+const baseFrame = {
+  image: null, quality: 0.9, spoofScore: 0.1, livenessPassed: true,
+  numberOfFaces: 1, boundingBox: { x: 0, y: 0, width: 200, height: 240 },
+  isCaptured: false, faceStatus: "ok", matchScore: null, matchPassed: null,
+  positioningFeedback: null, landmarks: null,
+};
 
 describe("barState", () => {
   it("passes comfortably above threshold (higher passes)", () => {
@@ -128,5 +137,43 @@ describe("deriveGuidance", () => {
   });
   it("returns null when locked (captured, good size)", () => {
     expect(deriveGuidance(frame())).toBeNull();
+  });
+});
+
+describe("positioningGuidance", () => {
+  it("maps each known flag to a friendly string", () => {
+    expect(positioningGuidance({ raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 }))
+      .toEqual(["Turn right"]);
+    expect(positioningGuidance({ raw: 1, ok: false, flags: ["GET_CLOSER"], unknownBits: 0 }))
+      .toEqual(["Move closer"]);
+  });
+  it("returns multiple strings for multiple flags", () => {
+    expect(positioningGuidance({ raw: 36, ok: false, flags: ["LOWER_HEAD", "TURN_RIGHT"], unknownBits: 0 }))
+      .toEqual(["Lower your head", "Turn right"]);
+  });
+  it("returns [] when ok", () => {
+    expect(positioningGuidance({ raw: 0, ok: true, flags: [], unknownBits: 0 })).toEqual([]);
+  });
+  it("ignores unknownBits in the text", () => {
+    expect(positioningGuidance({ raw: 256, ok: false, flags: [], unknownBits: 256 })).toEqual([]);
+  });
+});
+
+describe("guidanceFor", () => {
+  it("uses real feedback (not derived) when present and correcting", () => {
+    const f = { ...baseFrame, positioningFeedback: { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 } };
+    expect(guidanceFor(f)).toEqual({ text: "Turn right", derived: false });
+  });
+  it("says Hold still (real) when ok but not captured", () => {
+    const f = { ...baseFrame, positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 }, isCaptured: false };
+    expect(guidanceFor(f)).toEqual({ text: "Hold still", derived: false });
+  });
+  it("returns null text (real) when ok and captured", () => {
+    const f = { ...baseFrame, positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 }, isCaptured: true };
+    expect(guidanceFor(f)).toEqual({ text: null, derived: false });
+  });
+  it("falls back to derived when no feedback present", () => {
+    const f = { ...baseFrame, numberOfFaces: 0, positioningFeedback: null };
+    expect(guidanceFor(f)).toEqual({ text: "Step in front of the camera", derived: true });
   });
 });

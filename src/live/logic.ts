@@ -1,5 +1,5 @@
 /** Pure Live-HUD logic — no React/DOM, fully unit-tested. */
-import type { CaptureResult, MatchResult } from "../api.ts";
+import type { CaptureResult, MatchResult, PositioningFeedback } from "../api.ts";
 import type { BarView, LiveFrame, LiveThresholds, Verdict } from "./types.ts";
 
 /** Fold a capture result (+ optional match) into the HUD's frame shape. */
@@ -18,6 +18,8 @@ export function toLiveFrame(
     faceStatus: cap.faceStatus,
     matchScore: match ? match.matchScore : null,
     matchPassed: match ? match.match : null,
+    positioningFeedback: cap.positioningFeedback ?? null,
+    landmarks: cap.landmarks ?? null,
   };
 }
 
@@ -82,4 +84,38 @@ export function deriveGuidance(frame: LiveFrame): string | null {
   if (frame.faceStatus === "spoof_suspected") return "Look directly at the camera";
   if (!frame.isCaptured) return "Hold still";
   return null;
+}
+
+/** Friendly string per known positioning bit. */
+const POSITIONING_TEXT: Record<string, string> = {
+  GET_CLOSER: "Move closer",
+  MOVE_AWAY: "Move back",
+  TURN_RIGHT: "Turn right",
+  TURN_LEFT: "Turn left",
+  LIFT_HEAD: "Lift your head",
+  LOWER_HEAD: "Lower your head",
+  TILT_RIGHT: "Tilt right",
+  TILT_LEFT: "Tilt left",
+};
+
+/** Map decoded positioning flags to friendly strings (unknownBits excluded). */
+export function positioningGuidance(fb: PositioningFeedback): string[] {
+  return fb.flags.map((f) => POSITIONING_TEXT[f]).filter((s): s is string => Boolean(s));
+}
+
+/**
+ * Guidance for the HUD. Prefers REAL device positioning feedback when present
+ * (derived=false); otherwise falls back to the bbox/faceStatus heuristic
+ * (derived=true). Real "ok" + not-captured → "Hold still"; real "ok" + captured → null.
+ */
+export function guidanceFor(frame: LiveFrame): { text: string | null; derived: boolean } {
+  const fb = frame.positioningFeedback;
+  if (fb) {
+    if (!fb.ok) {
+      const parts = positioningGuidance(fb);
+      return { text: parts.length ? parts.join(" · ") : "Hold still", derived: false };
+    }
+    return { text: frame.isCaptured ? null : "Hold still", derived: false };
+  }
+  return { text: deriveGuidance(frame), derived: true };
 }
