@@ -178,6 +178,11 @@ app.get(
   handle(async (c) => c.json({ cameras: await session.getCameras() })),
 );
 
+app.get(
+  "/api/parameters",
+  handle(async (c) => c.json({ parameters: await session.getParameters() })),
+);
+
 app.post(
   "/api/camera/open",
   handle(async (c) => {

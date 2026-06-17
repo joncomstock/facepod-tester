@@ -163,6 +163,20 @@ Deno.test("failed connect leaves no live session and disposes the client", async
   assertEquals(closed, true, "client.close() should have run during cleanup");
 });
 
+Deno.test("getParameters returns device parameters when camera open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getParameters();
+  assertEquals(p.recMinVerifyTemplateQuality, 0.65);
+});
+
+Deno.test("getParameters throws when not connected", async () => {
+  const s = new FacePodSession();
+  // No connect → #require() throws NotConnectedError.
+  await assertRejects(() => s.getParameters());
+});
+
 Deno.test("live mode (no override) routes through createFaceModuleFfi (USB/FFI only)", async () => {
   // Off Windows, the real FFI factory fails fast in resolveRealSdk — that error
   // proves the live path goes through createFaceModuleFfi, not any REST client.
