@@ -40,6 +40,8 @@ interface Props {
   onProcessReference: (image: { image: string; datatype: ImageDatatype }) => void;
   onMatch: () => void;
   onCaptureAndMatch: (image: { image: string; datatype: ImageDatatype }) => void;
+  deviceParams?: import("../../api.ts").DeviceParameters | null;
+  onFetchParams?: () => Promise<void>;
 }
 
 /** The original step-by-step panels (01–05) preserved as the manual/debug surface. */

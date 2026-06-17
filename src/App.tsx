@@ -17,6 +17,7 @@ import {
 import { type CaptureThresholds } from "./components/CapturePanel.tsx";
 import { LiveView } from "./components/live/LiveView.tsx";
 import { ManualView } from "./components/manual/ManualView.tsx";
+import { useDeviceParameters } from "./live/useDeviceParameters.ts";
 
 function statePill(status: SessionStatus | null, busy: boolean, error: NormalizedError | null) {
   if (busy) return { cls: "state-busy", label: "Busy" };
@@ -45,6 +46,8 @@ export function App() {
   const [minimalMatchScore, setMinimalMatchScore] = useState(0.7);
 
   const [mode, setMode] = useState<"live" | "manual">("live");
+
+  const { params: deviceParams, fetchParams, clearParams } = useDeviceParameters();
 
   const refTemplate = referenceResult?.template?.data ?? null;
   const liveTemplate = captureResult?.template?.data ?? null;
@@ -109,6 +112,7 @@ export function App() {
       setCaptureResult(null);
       setReferenceResult(null);
       setMatchResult(null);
+      clearParams();
     });
 
   const handleSetScenario = (scenario: MockScenario) => run(() => api.setScenario(scenario));
@@ -224,6 +228,8 @@ export function App() {
             onProcessReference={handleProcessReference}
             onMatch={handleMatch}
             onCaptureAndMatch={handleCaptureAndMatch}
+            deviceParams={deviceParams}
+            onFetchParams={fetchParams}
           />
         )
         : (
@@ -236,6 +242,8 @@ export function App() {
             }}
             onError={setError}
             onSessionChange={refreshStatus}
+            deviceParams={deviceParams}
+            onFetchParams={fetchParams}
           />
         )}
     </div>

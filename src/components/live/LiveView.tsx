@@ -16,6 +16,8 @@ interface Props {
   thresholds: LiveThresholds;
   onError: (e: NormalizedError) => void;
   onSessionChange?: () => void;
+  deviceParams?: import("../../api.ts").DeviceParameters | null;
+  onFetchParams?: () => Promise<void>;
 }
 
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
