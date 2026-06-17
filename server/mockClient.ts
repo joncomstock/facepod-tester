@@ -16,6 +16,7 @@ import {
   type CaptureOptions,
   type CaptureResult,
   type DeviceInfo,
+  type DeviceParameters,
   type FaceImage,
   FaceModuleApiError,
   type FaceModuleClient,
@@ -111,6 +112,26 @@ export class DeterministicMockClient implements FaceModuleClient {
       { id: "cam0", name: "Mock Front Camera" },
       { id: "cam1", name: "Mock IR Camera" },
     ]);
+  }
+
+  getParameters(): Promise<DeviceParameters> {
+    // Deterministic device config. Values chosen DISTINCT from the UI defaults
+    // (0.7/0.5/0.7) so the reference ticks are visibly offset in the demo.
+    return Promise.resolve({
+      captureImageEncoding: 1, streamMode: 0, captureMode: 1,
+      recMaxSpoofProbability: 0.45, recMinEnrollTemplateQuality: 0.7,
+      recMinVerifyTemplateQuality: 0.65,
+      recMinMatchScoreL1: 0.8, recMinMatchScoreL2: 0.9, recMinMatchScoreL3: 0.95,
+      cameraEnableHighRes: 1, cameraSuspend: 0, cameraIdleTimeoutMs: 30000,
+      cameraEncodingAcceleration: 1, cameraLowPowerMode: 0, cameraLowPowerTimeoutMs: 60000,
+      faceSelectPolicy: 0,
+      minDistance: 0.3, maxDistance: 1.0, minRoll: -15, maxRoll: 15,
+      minPitch: -15, maxPitch: 15, minYaw: -15, maxYaw: 15,
+      margin: 20, onlyCenteredFaces: 1, maxResults: 1,
+      dayToNightThreshold: 30, nightToDayThreshold: 60,
+      dayToNightViscosity: 5, nightToDayViscosity: 5,
+      aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
+    });
   }
 
   openCameraContext(_opts?: OpenContextOptions): Promise<void> {

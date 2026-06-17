@@ -116,3 +116,14 @@ Deno.test("approach scenario ramps quality across successive captures", async ()
   // numberOfFaces is 1 once present.
   assert((await client.captureAndProcess({ minimalQuality: 0.7 })).numberOfFaces <= 1);
 });
+
+Deno.test("getParameters returns realistic params distinct from UI defaults", async () => {
+  const client = new DeterministicMockClient(() => "good");
+  const p = await client.getParameters();
+  assertEquals(p.recMinVerifyTemplateQuality, 0.65);
+  assertEquals(p.recMaxSpoofProbability, 0.45);
+  assertEquals(p.recMinMatchScoreL1, 0.8);
+  assertEquals(p.encodingJpegQuality, 90);
+  // all 34 fields populated (no undefined).
+  assertEquals(Object.values(p).some((v) => v === undefined), false);
+});
