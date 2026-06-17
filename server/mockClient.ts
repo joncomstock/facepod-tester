@@ -165,6 +165,7 @@ export class DeterministicMockClient implements FaceModuleClient {
       const spoofScore = Math.round((0.6 - p * 0.5) * 100) / 100;
       const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
       const side = Math.round(120 + p * 120);
+      const captured = quality >= opts.minimalQuality && passed;
       return Promise.resolve({
         quality,
         numberOfFaces: 1,
@@ -177,7 +178,11 @@ export class DeterministicMockClient implements FaceModuleClient {
           { type: "right_eye", x: 170, y: 110 },
           { type: "nose", x: 130, y: 160 },
         ],
-        isCaptured: quality >= opts.minimalQuality && passed,
+        // Synthetic: corrective TURN_RIGHT while framing, OK once locked.
+        positioningFeedback: captured
+          ? { raw: 0, ok: true, flags: [], unknownBits: 0 }
+          : { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 },
+        isCaptured: captured,
         faceStatus: passed ? "ok" : "spoof_suspected",
       });
     }
@@ -214,6 +219,8 @@ export class DeterministicMockClient implements FaceModuleClient {
         { type: "right_eye", x: 170, y: 110 },
         { type: "nose", x: 130, y: 160 },
       ],
+      // Steady face is well-positioned; spoof fails on liveness, not geometry.
+      positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
       isCaptured: quality >= opts.minimalQuality && passed,
       faceStatus: passed ? "ok" : "spoof_suspected",
     });
