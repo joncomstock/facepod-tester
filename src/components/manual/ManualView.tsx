@@ -14,6 +14,7 @@ import { DeviceStatusPanel } from "../DeviceStatusPanel.tsx";
 import { CameraControls } from "../CameraControls.tsx";
 import { CapturePanel, type CaptureThresholds } from "../CapturePanel.tsx";
 import { MatchPanel } from "../MatchPanel.tsx";
+import { DeviceParametersPanel } from "./DeviceParametersPanel.tsx";
 
 interface Props {
   status: SessionStatus | null;
@@ -91,6 +92,11 @@ export function ManualView(p: Props) {
           onProcessReference={p.onProcessReference}
           onMatch={p.onMatch}
           onCaptureAndMatch={p.onCaptureAndMatch}
+        />
+        <DeviceParametersPanel
+          status={p.status}
+          params={p.deviceParams ?? null}
+          onRefresh={() => { void p.onFetchParams?.(); }}
         />
       </div>
       <p className="hint" style={{ marginTop: 24 }}>
