@@ -143,22 +143,21 @@ Deno.test("getParameters returns realistic params distinct from UI defaults", as
   assertEquals(Object.values(p).some((v) => v === undefined), false);
 });
 
-Deno.test("getVideoFrame: latest advances; behind-cursor walks; caught-up backpressures", async () => {
+Deno.test("getVideoFrame: stays live under the real poll pattern (-1 then echo last seq)", async () => {
   const c = client("good"); // a FRESH client → its own #frameSeq starts at 0
-  const f1 = await c.getVideoFrame(-1n); // "latest" advances the simulated camera
-  if (!f1) throw new Error("expected a frame for lastSeq=-1");
+  const f1 = await c.getVideoFrame(-1n); // first poll: "latest"
+  if (!f1) throw new Error("expected a first frame");
   assertEquals(f1.format, "png");
   assert(f1.bytes.length > 0, "frame must carry bytes");
-  // A second "latest" poll advances again → strictly newer seq (monotonic).
-  const f2 = await c.getVideoFrame(-1n);
-  if (!f2) throw new Error("expected a newer frame");
-  assert(f2.seq > f1.seq, `seq must advance: ${f1.seq} -> ${f2.seq}`);
-  // A cursor AT the newest → null (backpressure: nothing newer than this yet).
-  assertEquals(await c.getVideoFrame(f2.seq), null);
-  // A cursor BEHIND the newest → the next newer frame (strict "newer than" filter).
-  const f3 = await c.getVideoFrame(f1.seq);
-  if (!f3) throw new Error("expected a next-newer frame for a behind cursor");
-  assert(f3.seq > f1.seq, "a behind cursor must yield a newer frame");
+  // useFramePoll then echoes the LAST returned seq on every subsequent poll. Each
+  // poll must yield a strictly newer frame — the feed must NOT freeze after frame 1.
+  let last = f1.seq;
+  for (let i = 0; i < 5; i++) {
+    const f = await c.getVideoFrame(last); // echo last seq, exactly as the client does
+    if (!f) throw new Error(`feed froze at poll ${i}: got null for cursor ${last}`);
+    assert(f.seq > last, `seq must advance: ${last} -> ${f.seq}`);
+    last = f.seq;
+  }
 });
 
 Deno.test("captureAndProcess: streams several intermediate snapshots", async () => {

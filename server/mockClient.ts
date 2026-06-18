@@ -146,21 +146,15 @@ export class DeterministicMockClient implements FaceModuleClient {
   }
 
   // Pure preview read; mirrors the lib's getVideoFrame (no op-lock, may be called
-  // concurrently with captureAndProcess). Model: "-1" = give me the latest (the
-  // simulated camera advances and yields its newest frame); a cursor strictly
-  // behind the newest = the next-newer frame (no advance); a cursor at/ahead of the
-  // newest = null (backpressure, nothing newer than this yet). Matches the probe's
-  // "newer-than cursor" / ALREADY_RETURNED semantics.
-  getVideoFrame(lastSeq?: bigint): Promise<VideoFrame | null> {
-    const cursor = lastSeq ?? -1n;
-    if (cursor === -1n) {
-      this.#frameSeq += 1n; // "latest" advances the simulated camera
-      return Promise.resolve(this.#frame(this.#frameSeq));
-    }
-    if (cursor < this.#frameSeq) {
-      return Promise.resolve(this.#frame(cursor + 1n)); // next-newer (no advance)
-    }
-    return Promise.resolve(null); // caught up → backpressure
+  // concurrently with captureAndProcess). Models a FREE-RUNNING camera: a new frame
+  // is produced for every poll, so the feed stays live under the real client pattern
+  // (useFramePoll sends -1 once, then echoes the last returned seq each poll). The
+  // earlier "honor the cursor, null when caught up" model froze the feed because the
+  // client never re-sends -1. The real device's cursor/backpressure semantics are
+  // exercised by the client's pure framePoll unit tests, not the mock.
+  getVideoFrame(_lastSeq?: bigint): Promise<VideoFrame | null> {
+    this.#frameSeq += 1n; // the simulated camera advanced since the last poll
+    return Promise.resolve(this.#frame(this.#frameSeq));
   }
 
   #frame(seq: bigint): VideoFrame {
