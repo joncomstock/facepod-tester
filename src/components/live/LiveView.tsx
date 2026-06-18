@@ -31,6 +31,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const [watching, setWatching] = useState(false);
   const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
+  const [lastTemplate, setLastTemplate] = useState<string | null>(null);
 
   const hasReference = refTemplate !== null;
   const verdict = frame
@@ -44,7 +45,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     active: watching && scene === "live",
     refTemplate,
     thresholds,
-    onFrame: setFrame,
+    onFrame: (f) => { setFrame(f); if (f.liveTemplate) setLastTemplate(f.liveTemplate); },
     onError: (e) => {
       setWatching(false);
       onError(e);
@@ -100,6 +101,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     }
     setFrame(null);       // 4. clear client state
     setRefTemplate(null);
+    setLastTemplate(null);
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
@@ -108,6 +110,10 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   useEffect(() => {
     if (!watching) setFrame(null);
   }, [watching]);
+
+  const useCurrentFace = useCallback(() => {
+    if (lastTemplate) setRefTemplate(lastTemplate);
+  }, [lastTemplate]);
 
   const pickReference = useCallback(async (file: File) => {
     const read = await readImageFile(file);
@@ -171,6 +177,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         onPickReference={pickReference}
         onClearReference={() => setRefTemplate(null)}
         onEnd={endSession}
+        onUseCurrentFace={useCurrentFace}
+        canUseCurrentFace={lastTemplate !== null}
       />
       {deviceParams
         ? (

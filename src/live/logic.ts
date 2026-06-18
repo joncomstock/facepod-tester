@@ -20,6 +20,7 @@ export function toCaptureFrame(
     matchPassed: match ? match.match : null,
     positioningFeedback: cap.positioningFeedback ?? null,
     landmarks: cap.landmarks ?? null,
+    liveTemplate: cap.template?.data ?? null,
   };
 }
 

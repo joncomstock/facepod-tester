@@ -26,6 +26,7 @@ describe("toCaptureFrame", () => {
     expect(f.isCaptured).toBe(true);
     expect(f.matchScore).toBeNull();
     expect(f.matchPassed).toBeNull();
+    expect(f.liveTemplate).toBe("LIVE");
   });
 
   it("includes match fields when a match result is supplied", () => {
@@ -66,6 +67,7 @@ function frame(over: Partial<CaptureFrame> = {}): CaptureFrame {
     matchPassed: null,
     positioningFeedback: null,
     landmarks: null,
+    liveTemplate: null,
     ...over,
   };
 }
@@ -74,7 +76,7 @@ const baseFrame = {
   image: null, quality: 0.9, spoofScore: 0.1, livenessPassed: true,
   numberOfFaces: 1, boundingBox: { x: 0, y: 0, width: 200, height: 240 },
   isCaptured: false, faceStatus: "ok", matchScore: null, matchPassed: null,
-  positioningFeedback: null, landmarks: null,
+  positioningFeedback: null, landmarks: null, liveTemplate: null,
 };
 
 describe("barState", () => {

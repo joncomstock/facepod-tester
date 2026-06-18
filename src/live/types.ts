@@ -28,6 +28,8 @@ export interface CaptureFrame {
   positioningFeedback: PositioningFeedback | null;
   /** Source-frame landmark points (data only, not drawn in v1). */
   landmarks: Landmark[] | null;
+  /** The finalized live template (base64), so a reference can be held without a new op. */
+  liveTemplate: string | null;
 }
 
 export type VerdictState = "searching" | "acquiring" | "accept" | "reject";
