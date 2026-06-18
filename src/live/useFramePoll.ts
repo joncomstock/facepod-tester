@@ -28,6 +28,7 @@ export function useFramePoll(opts: Options): FramePollState {
   const lastSeqRef = useRef("-1");
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef<Promise<unknown> | null>(null);
+  const sleepResolveRef = useRef<(() => void) | null>(null);
 
   const [videoFrame, setVideoFrame] = useState<{ datatype: string; data: string } | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshotState | null>(null);
@@ -36,6 +37,7 @@ export function useFramePoll(opts: Options): FramePollState {
   const stopAndDrain = async () => {
     runningRef.current = false;
     abortRef.current?.abort();
+    sleepResolveRef.current?.();
     try { await inFlightRef.current; } catch { /* AbortError expected */ }
   };
   const stopRef = useRef(stopAndDrain);
@@ -69,7 +71,11 @@ export function useFramePoll(opts: Options): FramePollState {
           runningRef.current = false;
           break;
         }
-        await new Promise((r) => setTimeout(r, ref.current.intervalMs ?? 125));
+        await new Promise<void>((resolve) => {
+          const id = setTimeout(resolve, ref.current.intervalMs ?? 125);
+          sleepResolveRef.current = () => { clearTimeout(id); resolve(); };
+        });
+        sleepResolveRef.current = null;
       }
     };
     void loop().catch(() => {});
