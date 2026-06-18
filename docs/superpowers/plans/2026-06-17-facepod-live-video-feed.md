@@ -274,6 +274,7 @@ Add the device-side plumbing in `FacePodSession`: a `readFrame()` that bypasses 
 
 **Files:**
 - Modify: `server/facepodSession.ts`
+- Modify: `src/api.ts` (add `sessionGeneration` to the `SessionStatus` type — needed by Task 3's frame poll)
 - Test: `server/facepodSession.test.ts`
 
 **Interfaces:**
@@ -315,13 +316,15 @@ Deno.test("readFrame populates latestSnapshot after a capture writes it", async 
   await s.disconnect();
 });
 
-Deno.test("sessionGeneration increments across reconnects", async () => {
+Deno.test("sessionGeneration increments across reconnects (readFrame + status)", async () => {
   const s = new FacePodSession();
   await s.connect(MOCK_CONFIG);
   const g1 = (await s.readFrame(-1n)).sessionGeneration;
+  assertEquals(s.status().sessionGeneration, g1); // status mirrors the live generation
   await s.connect(MOCK_CONFIG); // reconnect over a live session
   const g2 = (await s.readFrame(-1n)).sessionGeneration;
   assert(g2 > g1, `generation must advance: ${g1} -> ${g2}`);
+  assertEquals(s.status().sessionGeneration, g2);
   await s.disconnect();
 });
 
@@ -374,6 +377,8 @@ Add a getter:
     return this.#sessionGeneration;
   }
 ```
+
+Also surface it on status **now** (Task 3's frame poll needs the client to know the live generation, or its snapshot session-guard would discard every snapshot). Add `sessionGeneration: number;` to the `SessionStatus` interface in `server/facepodSession.ts` and include `sessionGeneration: this.#sessionGeneration` in the object `status()` returns. Mirror the field on the client type: add `sessionGeneration: number;` to the `SessionStatus` interface in `src/api.ts`.
 
 - [ ] **Step 4: Implement `readFrame` (bypasses `#track`, synchronous gate)**
 
@@ -526,7 +531,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add server/facepodSession.ts server/facepodSession.test.ts
+git add server/facepodSession.ts src/api.ts server/facepodSession.test.ts
 git commit -m "feat(server): frame-lane readFrame, latestSnapshot buffer, signal threading, teardown drain"
 ```
 
@@ -719,11 +724,11 @@ export interface FrameResponse {
 }
 ```
 
-Add to the `api` object:
+Add to the `api` object (it accepts an `AbortSignal` so `useFramePoll` can cancel an in-flight poll on teardown — `request` already spreads `...init` into `fetch`, so the `signal` propagates):
 
 ```ts
-  getVideoFrame: (lastSeq: string) =>
-    request<FrameResponse>(`/api/video-frame?lastSeq=${encodeURIComponent(lastSeq)}`),
+  getVideoFrame: (lastSeq: string, signal?: AbortSignal) =>
+    request<FrameResponse>(`/api/video-frame?lastSeq=${encodeURIComponent(lastSeq)}`, { signal }),
 ```
 
 - [ ] **Step 8: Run all backend tests + type-checks to verify green**
@@ -1042,7 +1047,7 @@ export function useFramePoll(opts: Options): FramePollState {
         const ac = new AbortController();
         abortRef.current = ac;
         try {
-          const p = api.getVideoFrame(lastSeqRef.current);
+          const p = api.getVideoFrame(lastSeqRef.current, ac.signal);
           inFlightRef.current = p;
           const resp = await p;
           if (!runningRef.current) break;
@@ -1153,12 +1158,12 @@ import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision } from "../../live/overlayDisplay.ts";
 ```
 
-Inside the component, after the existing `useWatchLoop({...})` call, add the frame poll (active whenever the camera is live — Lane 1 is independent of `watching`). `sessionGeneration` is not on `SessionStatus` yet (Task 4 adds it), so pass `0` here; the snapshot session-guard is inert until then (it only ever discards on a mismatch, and both sides are `0`):
+Inside the component, after the existing `useWatchLoop({...})` call, add the frame poll (active whenever the camera is live — Lane 1 is independent of `watching`). Pass the **live** `status?.sessionGeneration` (Task 1 added it to `SessionStatus`); it must equal the generation the server stamps on each frame, or `snapshotForSession` would discard every snapshot and the overlay would never draw:
 
 ```ts
   const { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: stopFrames } = useFramePoll({
     active: scene === "live",
-    sessionGeneration: 0,
+    sessionGeneration: status?.sessionGeneration ?? 0,
     onError,
   });
   const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
@@ -1235,35 +1240,21 @@ Split state cleanly: the **live quality bar** streams from `LiveSnapshotState`; 
 - Modify: `src/components/live/Telemetry.tsx` (live quality source; type rename)
 - Modify: `src/components/live/Feed.tsx` (type rename only — `LiveFrame` → `CaptureFrame`)
 - Modify: `src/components/live/LiveDataDisclosure.tsx` (type rename only — `LiveFrame` → `CaptureFrame`)
-- Modify: `src/components/live/LiveView.tsx` (teardown order; live quality; sessionGeneration; type rename)
-- Modify: `server/facepodSession.ts` + `src/api.ts` (add `sessionGeneration` to `SessionStatus`)
-- Modify: `server/facepodSession.test.ts` (assert status carries generation)
+- Modify: `src/components/live/LiveView.tsx` (teardown order; live quality; type rename)
 
 **Interfaces:**
-- Consumes: `LiveSnapshotState` (Task 3); `useFramePoll` (Task 3); `session.sessionGeneration` (Task 1).
-- Produces: `CaptureFrame` (renamed type); `toCaptureFrame(...)`; `useWatchLoop` returning `{ stopAndDrain }`; `SessionStatus.sessionGeneration: number`.
+- Consumes: `LiveSnapshotState` (Task 3); `useFramePoll` (Task 3); `session.sessionGeneration` + `SessionStatus.sessionGeneration` (Task 1).
+- Produces: `CaptureFrame` (renamed type); `toCaptureFrame(...)`; `useWatchLoop` returning `{ stopAndDrain }`.
+
+(`SessionStatus.sessionGeneration` was already added on both server and client in Task 1 — this task does not re-add it.)
 
 - [ ] **Step 1: Write/Update the failing tests**
 
 Update `src/live/logic.test.ts`: replace `import type { LiveFrame, ... }` with `import type { CaptureFrame, ... }`, every `LiveFrame` annotation with `CaptureFrame`, and every `toLiveFrame(` call with `toCaptureFrame(`. The assertions are unchanged.
 
-Add to `server/facepodSession.test.ts`:
-
-```ts
-Deno.test("status exposes a monotonic sessionGeneration", async () => {
-  const s = new FacePodSession();
-  await s.connect(MOCK_CONFIG);
-  const g1 = s.status().sessionGeneration;
-  await s.connect(MOCK_CONFIG);
-  assert(s.status().sessionGeneration > g1);
-  await s.disconnect();
-});
-```
-
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `npm test` → FAIL (`toCaptureFrame`/`CaptureFrame` not exported).
-Run: `deno test --allow-env --allow-read server/facepodSession.test.ts` → FAIL (`sessionGeneration` not on status).
 
 - [ ] **Step 3: Rename the type and the mapper across EVERY referencing file**
 
@@ -1309,17 +1300,12 @@ function post<T>(path: string, payload?: unknown, signal?: AbortSignal): Promise
 
 and `capture: (req, signal?) => post<{ result: CaptureResult }>("/api/capture", req, signal)` (same for `match`).
 
-- [ ] **Step 5: Surface `sessionGeneration` on status**
-
-In `server/facepodSession.ts`, add `sessionGeneration: number;` to the `SessionStatus` interface and include `sessionGeneration: this.#sessionGeneration` in the object returned by `status()`. In `src/api.ts`, add `sessionGeneration: number;` to the `SessionStatus` interface.
-
-- [ ] **Step 6: Telemetry split + live quality + teardown order in `LiveView`**
+- [ ] **Step 5: Telemetry split + live quality + teardown order in `LiveView`**
 
 In `src/components/live/Telemetry.tsx`: change `import type { LiveFrame, ... }` → `CaptureFrame`; add a prop `liveQuality?: number | null`; change the Quality `<Bar>` `value` to `value={liveQuality ?? frame?.quality ?? null}` so it streams from the live snapshot when present, falling back to the final-result quality. Liveness/Match/verdict bars stay on `frame` (`CaptureFrame`) — unchanged.
 
 In `src/components/live/LiveView.tsx`:
-- Change the `useFramePoll` call's `sessionGeneration` to `status?.sessionGeneration ?? 0`.
-- Capture the watch-loop drain: `const { stopAndDrain: stopWatch } = useWatchLoop({...});`.
+- Capture the watch-loop drain: `const { stopAndDrain: stopWatch } = useWatchLoop({...});` (already returns `{ stopAndDrain }` after Step 4).
 - Pass live quality to Telemetry: `<Telemetry ... liveQuality={liveSnapshot?.quality ?? null} />`.
 - Replace `endSession`'s body order with the authoritative teardown sequence:
 
@@ -1341,17 +1327,17 @@ In `src/components/live/LiveView.tsx`:
   }, [onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
 ```
 
-- [ ] **Step 7: Run all tests + type-check + mock E2E**
+- [ ] **Step 6: Run all tests + type-check + mock E2E**
 
-Run: `deno test --allow-env --allow-read server/` → PASS (incl. new generation test).
+Run: `deno test --allow-env --allow-read server/` → PASS (unchanged — Task 4 touches no server files).
 Run: `npm test` → PASS (renamed logic suite + Task 3 suites).
 Run: `npm run build` → no type errors.
 Manual mock E2E: Go Live + approach + watch; the **Quality** bar updates smoothly per-frame (live), while **Liveness/Match/verdict** update per capture op. End session: no console errors; reconnect works (generation advances; stale snapshots dropped).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/live/types.ts src/live/logic.ts src/live/logic.test.ts src/live/useWatchLoop.ts src/components/live/Telemetry.tsx src/components/live/Feed.tsx src/components/live/LiveDataDisclosure.tsx src/components/live/LiveView.tsx src/api.ts server/facepodSession.ts server/facepodSession.test.ts
+git add src/live/types.ts src/live/logic.ts src/live/logic.test.ts src/live/useWatchLoop.ts src/components/live/Telemetry.tsx src/components/live/Feed.tsx src/components/live/LiveDataDisclosure.tsx src/components/live/LiveView.tsx src/api.ts
 git commit -m "feat(live): stream live quality from snapshot, split CaptureFrame verdict, drain both lanes on teardown"
 ```
 
