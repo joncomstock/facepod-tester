@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
+  type CaptureResult,
   type FaceModuleClient,
   FaceModuleLifecycle,
   FACEPOD_DEFAULTS,
@@ -292,6 +293,58 @@ Deno.test("connect over a live session drains an in-flight capture instead of th
   const info = await s.connect(MOCK_CONFIG); // reconnect over live — must NOT throw BusyError
   assertEquals(info.deviceId, "MOCK-FACEPOD-0001");
   assertEquals(s.connected, true);
+  await capP.catch(() => {});
+  await s.disconnect();
+});
+
+Deno.test("failed reconnect (op wedged past the drain bound) restores #closing so the frame lane recovers", async () => {
+  // A capture that never settles within the drain bound forces connect()'s #track to
+  // reject with BusyError. connect must NOT leave #closing stuck (it set it true via
+  // #quiesceFrameLane, and the callback that resets it never ran) — else the retained
+  // live session's feed is dead forever.
+  let releaseCap!: () => void;
+  const hangingCap = new Promise<CaptureResult>((r) => {
+    releaseCap = () =>
+      r({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      });
+  });
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "WEDGED",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => Promise.resolve(frame(1n)),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () => hangingCap, // never settles until released
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory, { drainOpMs: 50 }); // tiny bound for the test
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+  const capP = s.capture({ minimalQuality: 0.5 }); // hangs, holds the busy lock
+
+  // Reconnect: the wedged op won't settle within 50ms → connect's #track BusyErrors.
+  await assertRejects(() => s.connect({ mock: false, mockScenario: "good" }), Error);
+
+  // The frame lane must be RESTORED on the retained session — not stuck closed.
+  const r = await s.readFrame(-1n);
+  assert(r.frame !== null, "frame lane must recover after a failed reconnect");
+
+  releaseCap();
   await capP.catch(() => {});
   await s.disconnect();
 });

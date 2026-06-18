@@ -130,10 +130,12 @@ export class FacePodSession {
     | { snapshot: LiveSnapshot; captureId: number; monotonicAtWrite: number }
     | null = null;
   readonly #makeLifecycle: LifecycleFactory;
+  readonly #drainOpMs: number;
 
-  constructor(makeLifecycle?: LifecycleFactory) {
+  constructor(makeLifecycle?: LifecycleFactory, opts?: { drainOpMs?: number }) {
     this.#makeLifecycle = makeLifecycle ??
       ((config) => Promise.resolve(this.#defaultLifecycle(config)));
+    this.#drainOpMs = opts?.drainOpMs ?? DRAIN_OP_MS;
   }
 
   /**
@@ -263,35 +265,44 @@ export class FacePodSession {
     // op can't turn a reconnect into a BusyError (mirrors disconnect()).
     await this.#quiesceFrameLane();
     await this.#quiesceOpLane();
-    return await this.#track(async () => {
-      // Hold the busy lock across teardown + build so a prior session is never
-      // torn down only to then reject the new connect on a race.
-      await this.#teardown();
-      this.#mockScenario = config.mockScenario; // read live by the mock client
-      const fp = await this.#makeLifecycle(config);
-      let info: DeviceInfo;
-      try {
-        await fp.connect();
-        // Resolve device info BEFORE adopting the lifecycle: if this throws we
-        // must not leave a "connected" session behind.
-        info = await fp.device.getInfo();
-      } catch (err) {
-        await fp.dispose().catch(() => {});
-        throw err;
-      }
-      this.#fp = fp;
-      this.#sessionGeneration++;
-      this.#closing = false; // a fresh session re-opens the frame lane
-      this.#latestSnapshot = null;
-      this.#dllPath = config.mock ? null : (config.dllPath ?? null);
-      this.#dllDir = config.mock ? null : (config.dllDir ?? null);
-      this.#pollIntervalMs = config.mock
-        ? null
-        : (config.pollIntervalMs ?? null);
-      this.#mock = config.mock;
-      this.#cameraOpen = false;
-      return info;
-    });
+    try {
+      return await this.#track(async () => {
+        // Hold the busy lock across teardown + build so a prior session is never
+        // torn down only to then reject the new connect on a race.
+        await this.#teardown();
+        this.#mockScenario = config.mockScenario; // read live by the mock client
+        const fp = await this.#makeLifecycle(config);
+        let info: DeviceInfo;
+        try {
+          await fp.connect();
+          // Resolve device info BEFORE adopting the lifecycle: if this throws we
+          // must not leave a "connected" session behind.
+          info = await fp.device.getInfo();
+        } catch (err) {
+          await fp.dispose().catch(() => {});
+          throw err;
+        }
+        this.#fp = fp;
+        this.#sessionGeneration++;
+        this.#closing = false; // a fresh session re-opens the frame lane
+        this.#latestSnapshot = null;
+        this.#dllPath = config.mock ? null : (config.dllPath ?? null);
+        this.#dllDir = config.mock ? null : (config.dllDir ?? null);
+        this.#pollIntervalMs = config.mock
+          ? null
+          : (config.pollIntervalMs ?? null);
+        this.#mock = config.mock;
+        this.#cameraOpen = false;
+        return info;
+      });
+    } catch (err) {
+      // A reconnect that couldn't acquire the lock (a prior op still wedged past the
+      // drain bound) must not leave the frame lane closed — #quiesceFrameLane set
+      // #closing=true and the #track callback (which resets it) never ran. Reopen it
+      // on the retained session, mirroring disconnect(), and surface the error.
+      this.#closing = false;
+      throw err;
+    }
   }
 
   /** Close camera (if open) and dispose the lifecycle. Drains both lanes first
@@ -370,7 +381,7 @@ export class FacePodSession {
     if (!inflight) return;
     let tid: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((r) => {
-      tid = setTimeout(r, DRAIN_OP_MS);
+      tid = setTimeout(r, this.#drainOpMs);
     });
     await Promise.race([inflight.catch(() => {}), timeout]);
     clearTimeout(tid);
