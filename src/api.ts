@@ -162,6 +162,7 @@ export interface SessionStatus {
   mock: boolean;
   scenario: MockScenario | null;
   lastError: NormalizedError | null;
+  sessionGeneration: number;
 }
 
 export interface NormalizedError {

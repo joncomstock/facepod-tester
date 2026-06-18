@@ -23,8 +23,10 @@ import {
   FaceModuleStatusCodes,
   FACEPOD_DEFAULTS,
   type ImageDatatype,
+  type LiveSnapshot,
   type MatchResult,
   type ProcessResult,
+  type VideoFrame,
 } from "@eai/hid/facepod";
 
 import { ConfigError, type ResolvedConfig } from "./config.ts";
@@ -43,6 +45,15 @@ export interface SessionStatus {
   mock: boolean;
   scenario: MockScenario | null;
   lastError: NormalizedError | null;
+  sessionGeneration: number;
+}
+
+export interface FrameRead {
+  frame: VideoFrame | null;
+  snapshot: LiveSnapshot | null;
+  snapshotAgeMs: number | null;
+  captureId: number;
+  sessionGeneration: number;
 }
 
 export interface CaptureParams {
@@ -99,6 +110,14 @@ export class FacePodSession {
   #busy = false;
   #lastError: NormalizedError | null = null;
   #mockScenario: MockScenario = "good";
+  #closing = false;
+  #framesInFlight = 0;
+  #inFlightFrame: Promise<unknown> | null = null;
+  #captureId = 0;
+  #sessionGeneration = 0;
+  #latestSnapshot:
+    | { snapshot: LiveSnapshot; captureId: number; monotonicAtWrite: number }
+    | null = null;
   readonly #makeLifecycle: LifecycleFactory;
 
   constructor(makeLifecycle?: LifecycleFactory) {
@@ -130,6 +149,10 @@ export class FacePodSession {
     return this.#fp !== null;
   }
 
+  get sessionGeneration(): number {
+    return this.#sessionGeneration;
+  }
+
   status(): SessionStatus {
     return {
       connected: this.connected,
@@ -142,6 +165,7 @@ export class FacePodSession {
       mock: this.#mock,
       scenario: this.#mock ? this.#mockScenario : null,
       lastError: this.#lastError,
+      sessionGeneration: this.#sessionGeneration,
     };
   }
 
@@ -171,11 +195,54 @@ export class FacePodSession {
     return this.#fp;
   }
 
+  /**
+   * Pull the newest preview frame (Lane 1). Bypasses #track exactly like the lib
+   * client bypasses its own op-lock, so the feed runs concurrently with an
+   * in-flight capture. The check-and-increment below is SYNCHRONOUS (before any
+   * await) so a read cannot slip past #closing after the teardown drain observed
+   * zero in-flight reads. Returns a null frame (never throws) when closing/not open.
+   */
+  async readFrame(lastSeq?: bigint): Promise<FrameRead> {
+    const base = {
+      snapshot: this.#latestSnapshot?.snapshot ?? null,
+      snapshotAgeMs: this.#latestSnapshot
+        ? performance.now() - this.#latestSnapshot.monotonicAtWrite
+        : null,
+      captureId: this.#latestSnapshot?.captureId ?? this.#captureId,
+      sessionGeneration: this.#sessionGeneration,
+    };
+    if (this.#closing || !this.#fp || !this.#fp.device.isOpen) {
+      return { frame: null, ...base };
+    }
+    this.#framesInFlight++; // synchronous: paired with the #closing check above
+    const p = this.#fp.device.getVideoFrame(lastSeq);
+    this.#inFlightFrame = p;
+    try {
+      const frame = await p;
+      // Recompute snapshot/age AFTER the await so the buffer is current.
+      return {
+        frame,
+        snapshot: this.#latestSnapshot?.snapshot ?? null,
+        snapshotAgeMs: this.#latestSnapshot
+          ? performance.now() - this.#latestSnapshot.monotonicAtWrite
+          : null,
+        captureId: this.#latestSnapshot?.captureId ?? this.#captureId,
+        sessionGeneration: this.#sessionGeneration,
+      };
+    } catch {
+      return { frame: null, ...base };
+    } finally {
+      this.#framesInFlight--;
+      if (this.#framesInFlight === 0) this.#inFlightFrame = null;
+    }
+  }
+
   /** Dispose any existing session, then create + connect a new one. */
   async connect(config: ResolvedConfig): Promise<DeviceInfo> {
     return await this.#track(async () => {
       // Hold the busy lock across teardown + build so a prior session is never
       // torn down only to then reject the new connect on a race.
+      await this.#quiesceFrameLane();
       await this.#teardown();
       this.#mockScenario = config.mockScenario; // read live by the mock client
       const fp = await this.#makeLifecycle(config);
@@ -190,6 +257,9 @@ export class FacePodSession {
         throw err;
       }
       this.#fp = fp;
+      this.#sessionGeneration++;
+      this.#closing = false; // a fresh session re-opens the frame lane
+      this.#latestSnapshot = null;
       this.#dllPath = config.mock ? null : (config.dllPath ?? null);
       this.#dllDir = config.mock ? null : (config.dllDir ?? null);
       this.#pollIntervalMs = config.mock
@@ -203,6 +273,7 @@ export class FacePodSession {
 
   /** Close camera (if open) and dispose the lifecycle. Rejects if busy. */
   async disconnect(): Promise<void> {
+    await this.#quiesceFrameLane();
     await this.#track(() => this.#teardown());
   }
 
@@ -211,6 +282,7 @@ export class FacePodSession {
    * can always release the device even mid-operation (Ctrl-C / SIGTERM).
    */
   async forceDispose(): Promise<void> {
+    this.#closing = true; // stop new reads immediately; do NOT await the drain
     await this.#teardown().catch(() => {});
   }
 
@@ -227,6 +299,23 @@ export class FacePodSession {
     }
     this.#mockScenario = scenario;
     return { scenario };
+  }
+
+  /**
+   * Stop the frame lane before dispose: flip #closing (synchronously blocks new
+   * reads via readFrame's gate), then await the single in-flight read, BOUNDED by
+   * a timeout so a wedged device read can't wedge teardown. At most one read is in
+   * flight (clients poll sequentially + the synchronous gate), so awaiting the
+   * retained promise is sufficient.
+   */
+  async #quiesceFrameLane(): Promise<void> {
+    this.#closing = true;
+    const inflight = this.#inFlightFrame;
+    if (!inflight) return;
+    await Promise.race([
+      inflight.catch(() => {}),
+      new Promise((r) => setTimeout(r, 500)),
+    ]);
   }
 
   /** Best-effort dispose of the current lifecycle and clear session state. */
@@ -282,14 +371,26 @@ export class FacePodSession {
     });
   }
 
-  capture(params: CaptureParams): Promise<CaptureResult> {
-    return this.#track(() =>
-      this.#require().device.captureAndProcess({
-        minimalQuality: params.minimalQuality,
-        maximalSpoofScore: params.maximalSpoofScore,
-        timeoutMs: params.timeoutMs,
-      })
-    );
+  capture(params: CaptureParams, signal?: AbortSignal): Promise<CaptureResult> {
+    return this.#track(() => {
+      const captureId = ++this.#captureId;
+      this.#latestSnapshot = null; // clear at op start: no prior-op snapshot lingers
+      return this.#require().device.captureAndProcess(
+        {
+          minimalQuality: params.minimalQuality,
+          maximalSpoofScore: params.maximalSpoofScore,
+          timeoutMs: params.timeoutMs,
+        },
+        signal,
+        (snap) => {
+          this.#latestSnapshot = {
+            snapshot: snap,
+            captureId,
+            monotonicAtWrite: performance.now(),
+          };
+        },
+      );
+    });
   }
 
   processImage(
@@ -318,6 +419,7 @@ export class FacePodSession {
   /** Process a reference image, capture a live face, and match the two. */
   captureAndMatch(
     params: CaptureAndMatchParams,
+    signal?: AbortSignal,
   ): Promise<CaptureAndMatchResult> {
     return this.#track(async () => {
       const fp = this.#require();
@@ -325,11 +427,23 @@ export class FacePodSession {
         minimalQuality: params.capture.minimalQuality,
         maximalSpoofScore: params.capture.maximalSpoofScore,
       });
-      const live = await fp.device.captureAndProcess({
-        minimalQuality: params.capture.minimalQuality,
-        maximalSpoofScore: params.capture.maximalSpoofScore,
-        timeoutMs: params.capture.timeoutMs,
-      });
+      const captureId = ++this.#captureId;
+      this.#latestSnapshot = null;
+      const live = await fp.device.captureAndProcess(
+        {
+          minimalQuality: params.capture.minimalQuality,
+          maximalSpoofScore: params.capture.maximalSpoofScore,
+          timeoutMs: params.capture.timeoutMs,
+        },
+        signal,
+        (snap) => {
+          this.#latestSnapshot = {
+            snapshot: snap,
+            captureId,
+            monotonicAtWrite: performance.now(),
+          };
+        },
+      );
       if (!reference.template) {
         throw new Error(
           "Reference image produced no template (no face detected?).",

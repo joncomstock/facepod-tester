@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
   type FaceModuleClient,
   FaceModuleLifecycle,
@@ -197,4 +197,51 @@ Deno.test("live mode (no override) routes through createFaceModuleFfi (USB/FFI o
     "requires Windows",
   );
   assertEquals(s.connected, false);
+});
+
+Deno.test("readFrame returns a frame in mock and advances seq", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const r1 = await s.readFrame(-1n);
+  if (!r1.frame) throw new Error("expected a frame");
+  assertEquals(r1.frame.format, "png");
+  assertEquals(typeof r1.sessionGeneration, "number");
+  // No capture has run yet → no snapshot buffered.
+  assertEquals(r1.snapshot, null);
+  assertEquals(r1.snapshotAgeMs, null);
+  await s.disconnect();
+});
+
+Deno.test("readFrame populates latestSnapshot after a capture writes it", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  s.setMockScenario("approach");
+  await s.capture({ minimalQuality: 0.7 }); // streams onIntermediate → buffer
+  const r = await s.readFrame(-1n);
+  assert(r.snapshot !== null, "snapshot should be buffered after a capture");
+  assert(r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0, "age computed server-side");
+  await s.disconnect();
+});
+
+Deno.test("sessionGeneration increments across reconnects (readFrame + status)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  const g1 = (await s.readFrame(-1n)).sessionGeneration;
+  assertEquals(s.status().sessionGeneration, g1); // status mirrors the live generation
+  await s.connect(MOCK_CONFIG); // reconnect over a live session
+  const g2 = (await s.readFrame(-1n)).sessionGeneration;
+  assert(g2 > g1, `generation must advance: ${g1} -> ${g2}`);
+  assertEquals(s.status().sessionGeneration, g2);
+  await s.disconnect();
+});
+
+Deno.test("readFrame returns null frame once closing (teardown gate)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  await s.disconnect(); // flips #closing then disposes
+  const r = await s.readFrame(-1n);
+  assertEquals(r.frame, null); // not connected / closing → no frame, no throw
 });
