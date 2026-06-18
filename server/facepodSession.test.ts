@@ -349,6 +349,98 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
   await s.disconnect();
 });
 
+Deno.test("teardown refuses to dispose while a frame read is still in flight (seam contract)", async () => {
+  // A getVideoFrame read that never settles within the frame-drain bound must NOT be
+  // disposed under — disconnect retains the session and rejects instead.
+  let releaseRead!: () => void;
+  const hangingRead = new Promise<VideoFrame>((r) => {
+    releaseRead = () => r(frame(1n));
+  });
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "HUNG-READ",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => hangingRead, // never settles until released
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory, { drainFrameMs: 50 }); // tiny bound for the test
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+  const rp = s.readFrame(-1n); // in flight, never settles
+
+  // Drain bound expires with the read pending → disconnect must reject, NOT dispose.
+  await assertRejects(() => s.disconnect(), Error);
+  assertEquals(s.connected, true, "session retained — not disposed mid-read");
+
+  releaseRead();
+  await rp;
+  await s.disconnect(); // now the read has settled → drains and disposes cleanly
+  assertEquals(s.connected, false);
+});
+
+Deno.test("readFrame records a real read failure in lastError (not a silent 'no frame')", async () => {
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "READ-ERR",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () =>
+      Promise.reject(
+        Object.assign(new Error("frame read boom"), {
+          name: "FaceModuleApiError",
+        }),
+      ),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory);
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+
+  const r = await s.readFrame(-1n);
+  assertEquals(r.frame, null); // best-effort lane still returns null (keeps polling)
+  const err = s.status().lastError;
+  assert(err !== null, "a thrown read error must be recorded, not silently masked");
+  assertEquals(err?.message, "frame read boom");
+  await s.disconnect();
+});
+
 Deno.test("teardown drains ALL concurrent frame reads, not just the latest", async () => {
   // Read A (issued first) resolves LATE; read B (the latest) resolves immediately.
   // The old single-#inFlightFrame drain awaited only B and would dispose while A's

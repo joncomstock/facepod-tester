@@ -101,6 +101,14 @@ function busy(): never {
 const DRAIN_OP_MS = 6000;
 
 /**
+ * Backstop bound for draining in-flight frame reads before teardown. A getVideoFrame
+ * read is a fast pure read (milliseconds), so this is generous headroom — it only
+ * trips on a genuinely hung read, in which case teardown is refused rather than
+ * disposing the DLL under the read.
+ */
+const DRAIN_FRAME_MS = 2000;
+
+/**
  * Builds + returns a (not-yet-connected) FaceModuleLifecycle for a config.
  * Injectable so tests can substitute a lifecycle backed by a fake client.
  */
@@ -131,11 +139,16 @@ export class FacePodSession {
     | null = null;
   readonly #makeLifecycle: LifecycleFactory;
   readonly #drainOpMs: number;
+  readonly #drainFrameMs: number;
 
-  constructor(makeLifecycle?: LifecycleFactory, opts?: { drainOpMs?: number }) {
+  constructor(
+    makeLifecycle?: LifecycleFactory,
+    opts?: { drainOpMs?: number; drainFrameMs?: number },
+  ) {
     this.#makeLifecycle = makeLifecycle ??
       ((config) => Promise.resolve(this.#defaultLifecycle(config)));
     this.#drainOpMs = opts?.drainOpMs ?? DRAIN_OP_MS;
+    this.#drainFrameMs = opts?.drainFrameMs ?? DRAIN_FRAME_MS;
   }
 
   /**
@@ -252,18 +265,35 @@ export class FacePodSession {
         captureId: this.#latestSnapshot?.captureId ?? this.#captureId,
         sessionGeneration: this.#sessionGeneration,
       };
-    } catch {
+    } catch (err) {
+      // The lib returns null for normal backpressure (no throw) and THROWS on a real
+      // read failure. Record it so GET /api/status surfaces it (lastError) instead of
+      // silently masking a hardware error as "no frame". Still return frame:null so the
+      // best-effort feed lane keeps polling rather than tearing the feed down.
+      this.#lastError = normalizeError(err);
       return { frame: null, ...base };
     } finally {
       this.#inFlightFrames.delete(p);
     }
   }
 
+  /**
+   * Quiesce the frame lane before teardown; if a read is still in flight after the
+   * bound, reopen the lane on the retained session and reject (NEVER dispose under an
+   * active getVideoFrame read — the seam's teardown contract).
+   */
+  async #requireFrameLaneQuiesced(): Promise<void> {
+    if (await this.#quiesceFrameLane()) return;
+    this.#closing = false; // retained session: reopen the lane for the pending read
+    busy(); // "device busy, retry" — do NOT proceed to dispose
+  }
+
   /** Dispose any existing session, then create + connect a new one. */
   async connect(config: ResolvedConfig): Promise<DeviceInfo> {
     // Drain both lanes before acquiring the busy lock so a still-settling Lane-2
-    // op can't turn a reconnect into a BusyError (mirrors disconnect()).
-    await this.#quiesceFrameLane();
+    // op can't turn a reconnect into a BusyError (mirrors disconnect()), and never
+    // tear down the old session while a frame read is still in flight.
+    await this.#requireFrameLaneQuiesced();
     await this.#quiesceOpLane();
     try {
       return await this.#track(async () => {
@@ -308,7 +338,7 @@ export class FacePodSession {
   /** Close camera (if open) and dispose the lifecycle. Drains both lanes first
    *  so a still-settling capture never turns End-session into a BusyError. */
   async disconnect(): Promise<void> {
-    await this.#quiesceFrameLane();
+    await this.#requireFrameLaneQuiesced();
     await this.#quiesceOpLane();
     try {
       await this.#track(() => this.#teardown());
@@ -350,22 +380,26 @@ export class FacePodSession {
   /**
    * Stop the frame lane before dispose: flip #closing (synchronously blocks new
    * reads via readFrame's gate), then await EVERY in-flight read to settle (reads
-   * can overlap — two tabs polling the loopback server), BOUNDED by a timeout so a
-   * wedged device read can't wedge teardown.
+   * can overlap — two tabs polling the loopback server), BOUNDED by a timeout.
+   *
+   * Returns TRUE if every read settled (safe to dispose), FALSE if the bound expired
+   * with a read still pending. The caller MUST NOT dispose on FALSE — disposing while
+   * a getVideoFrame read is in flight unloads the DLL under it (the seam's teardown
+   * contract: stop calling getVideoFrame before dispose). On FALSE, retain the
+   * session and reject, mirroring the op lane.
    */
-  async #quiesceFrameLane(): Promise<void> {
+  async #quiesceFrameLane(): Promise<boolean> {
     this.#closing = true;
     const inflight = [...this.#inFlightFrames];
-    if (inflight.length === 0) return;
+    if (inflight.length === 0) return true;
     let tid: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<void>((r) => {
-      tid = setTimeout(r, 500);
+    const drained = Promise.allSettled(inflight).then(() => true);
+    const timedOut = new Promise<boolean>((r) => {
+      tid = setTimeout(() => r(false), this.#drainFrameMs);
     });
-    await Promise.race([
-      Promise.allSettled(inflight),
-      timeout,
-    ]);
+    const ok = await Promise.race([drained, timedOut]);
     clearTimeout(tid);
+    return ok;
   }
 
   /**
