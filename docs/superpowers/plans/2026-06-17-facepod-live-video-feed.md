@@ -66,18 +66,22 @@ Add to `server/mockClient.test.ts`:
 ```ts
 import type { LiveSnapshot } from "@eai/hid/facepod";
 
-Deno.test("getVideoFrame: honors lastSeq cursor and backpressure", async () => {
-  const c = client("good");
-  const f1 = await c.getVideoFrame(-1n);
+Deno.test("getVideoFrame: latest advances; behind-cursor walks; caught-up backpressures", async () => {
+  const c = client("good"); // a FRESH client → its own #frameSeq starts at 0
+  const f1 = await c.getVideoFrame(-1n); // "latest" advances the simulated camera
   if (!f1) throw new Error("expected a frame for lastSeq=-1");
   assertEquals(f1.format, "png");
   assert(f1.bytes.length > 0, "frame must carry bytes");
-  // Asking again with the just-returned seq yields a strictly newer frame...
-  const f2 = await c.getVideoFrame(f1.seq);
+  // A second "latest" poll advances again → strictly newer seq (monotonic).
+  const f2 = await c.getVideoFrame(-1n);
   if (!f2) throw new Error("expected a newer frame");
   assert(f2.seq > f1.seq, `seq must advance: ${f1.seq} -> ${f2.seq}`);
-  // ...and a cursor at the newest returns null (backpressure: nothing newer yet).
+  // A cursor AT the newest → null (backpressure: nothing newer than this yet).
   assertEquals(await c.getVideoFrame(f2.seq), null);
+  // A cursor BEHIND the newest → the next newer frame (strict "newer than" filter).
+  const f3 = await c.getVideoFrame(f1.seq);
+  if (!f3) throw new Error("expected a next-newer frame for a behind cursor");
+  assert(f3.seq > f1.seq, "a behind cursor must yield a newer frame");
 });
 
 Deno.test("captureAndProcess: streams several intermediate snapshots", async () => {
@@ -125,26 +129,33 @@ const MOCK_FRAME_W = 360;
 const MOCK_FRAME_H = 640;
 const MOCK_FRAME_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAWgAAAKACAYAAACxGuKnAAAGyElEQVR42u3UMQ0AAAjAMDSggAv/DsEGCT1qYMciqweAe0IEAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGsCgRQAwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGsCghQAwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgxYBwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoEQAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgxYBwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoIQAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoEUAMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQxaBACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoEUAMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAX5bX0oiq4f1aGkAAAAASUVORK5CYII=";
-
-let mockFrameSeq = 0n; // module-level monotonic preview cursor (advances per fresh read)
 ```
 
-Add the method inside `DeterministicMockClient` (place beside `getParameters`):
+Add the method (and a per-instance frame cursor) inside `DeterministicMockClient` (place beside `getParameters`). The cursor is an **instance field, NOT module-level**, so each client/session has its own monotonic seq and tests don't leak state into each other:
 
 ```ts
+  #frameSeq = 0n; // per-instance monotonic preview cursor (declare with the other #fields)
+
   // Pure preview read; mirrors the lib's getVideoFrame (no op-lock, may be called
-  // concurrently with captureAndProcess). Honors the lastSeq cursor + backpressure.
+  // concurrently with captureAndProcess). Model: "-1" = give me the latest (the
+  // simulated camera advances and yields its newest frame); a cursor strictly
+  // behind the newest = the next-newer frame (no advance); a cursor at/ahead of the
+  // newest = null (backpressure, nothing newer than this yet). Matches the probe's
+  // "newer-than cursor" / ALREADY_RETURNED semantics.
   getVideoFrame(lastSeq?: bigint): Promise<VideoFrame | null> {
     const cursor = lastSeq ?? -1n;
-    // -1 means "latest available" → always produce a fresh frame and advance.
-    // A cursor at the newest seq means "nothing newer yet" → null (backpressure).
-    if (cursor >= mockFrameSeq && cursor !== -1n) return Promise.resolve(null);
-    mockFrameSeq += 1n;
-    return Promise.resolve({
-      bytes: decodeBase64(MOCK_FRAME_PNG_BASE64),
-      format: "png",
-      seq: mockFrameSeq,
-    });
+    if (cursor === -1n) {
+      this.#frameSeq += 1n; // "latest" advances the simulated camera
+      return Promise.resolve(this.#frame(this.#frameSeq));
+    }
+    if (cursor < this.#frameSeq) {
+      return Promise.resolve(this.#frame(cursor + 1n)); // next-newer (no advance)
+    }
+    return Promise.resolve(null); // caught up → backpressure
+  }
+
+  #frame(seq: bigint): VideoFrame {
+    return { bytes: decodeBase64(MOCK_FRAME_PNG_BASE64), format: "png", seq };
   }
 ```
 
@@ -1270,7 +1281,7 @@ Also update `src/live/logic.test.ts` per Step 1 (already covered).
 
 - [ ] **Step 4: Update `useWatchLoop` — rename + AbortController + `stopAndDrain`**
 
-In `src/live/useWatchLoop.ts`: change the import/annotations `LiveFrame` → `CaptureFrame` and `toLiveFrame` → `toCaptureFrame`. Add an `AbortController` threaded into the fetch and a `stopAndDrain`. Replace the hook body's refs + return with:
+In `src/live/useWatchLoop.ts`: change the import/annotations `LiveFrame` → `CaptureFrame` and `toLiveFrame` → `toCaptureFrame`. **Also change the function's return-type annotation** from `export function useWatchLoop(opts: Options): void {` to `export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void> } {` — the hook now returns a value, so the `: void` annotation must change or `tsc` fails. Add an `AbortController` threaded into the fetch and a `stopAndDrain`. Replace the hook body's refs + return with:
 
 ```ts
   const runningRef = useRef(false);
