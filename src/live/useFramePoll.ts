@@ -8,6 +8,9 @@ interface Options {
   sessionGeneration: number;
   onError: (e: NormalizedError) => void;
   intervalMs?: number;
+  /** Bump to re-arm the poll loop without an `active` toggle (e.g. to resume the
+   *  feed after a failed End-session left the retained session paused). */
+  restartKey?: number;
 }
 interface FramePollState {
   videoFrame: { datatype: string; data: string } | null;
@@ -64,13 +67,16 @@ export function useFramePoll(opts: Options): FramePollState {
           inFlightRef.current = p;
           const resp = await p;
           if (!runningRef.current) break;
-          // Only advance the overlay alongside a FRESH frame (spec §5.2).
+          // Only advance the IMAGE + overlay alongside a FRESH frame (spec §5.2)...
           if (isFreshFrame(lastSeqRef.current, resp) && resp.frame) {
             lastSeqRef.current = nextLastSeq(lastSeqRef.current, resp);
             setVideoFrame({ datatype: resp.frame.datatype, data: resp.frame.data });
             setLiveSnapshot(snapshotForSession(resp, ref.current.sessionGeneration));
-            setSnapshotAgeMs(resp.snapshotAgeMs);
           }
+          // ...but ALWAYS advance the overlay age (server-computed), even on a
+          // null-frame response. If frame production stalls, the last overlay must
+          // still reach its fade/removal thresholds instead of sticking forever.
+          setSnapshotAgeMs(resp.snapshotAgeMs);
         } catch (e) {
           if (!runningRef.current) break; // aborted by stopAndDrain — not an error
           const detail = e instanceof ApiError
@@ -89,7 +95,7 @@ export function useFramePoll(opts: Options): FramePollState {
     };
     void loop().catch(() => {});
     return () => { void stopRef.current(); };
-  }, [opts.active]);
+  }, [opts.active, opts.restartKey]);
 
   return { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: () => stopRef.current() };
 }

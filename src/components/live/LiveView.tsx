@@ -36,6 +36,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const [lastTemplate, setLastTemplate] = useState<string | null>(null);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [frameNat, setFrameNat] = useState<{ w: number; h: number } | null>(null);
+  const [feedEpoch, setFeedEpoch] = useState(0); // bump to re-arm the frame poll
   const frameTickRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -59,6 +60,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     active: scene === "live",
     sessionGeneration: status?.sessionGeneration ?? 0,
     onError,
+    restartKey: feedEpoch,
   });
   const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
 
@@ -103,17 +105,22 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [onError]);
 
   const endSession = useCallback(async () => {
+    const wasWatching = watching;
     setWatching(false);
     await stopFrames();   // 1. stop Lane 1, await in-flight frame request
     await stopWatch();    // 2. abort + drain Lane 2 (capture/match)
     try {
       await api.disconnect(); // 3. server flips #closing, drains frame-reads, disposes
     } catch (e) {
-      // The server intentionally RETAINS the live device when its op-drain times out
-      // (a wedged capture) — it did not disconnect. Surface the error and do NOT
-      // falsely show idle; keep the session as-is so the operator can retry End.
+      // The server intentionally RETAINS the live device when a lane can't drain (a
+      // wedged op/read) — it did not disconnect. Surface the error, don't falsely show
+      // idle, and RESUME the lanes so the retained session isn't left frozen: restore
+      // the prior watch state and re-arm the frame poll (scene stays "live", so the
+      // poll won't re-arm on its own without bumping restartKey).
       onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
       onSessionChange?.(); // refresh the status strip — it still reads connected
+      setWatching(wasWatching);
+      setFeedEpoch((n) => n + 1);
       return;
     }
     setFrame(null);       // 4. clear client state (only after a real disconnect)
@@ -122,7 +129,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
-  }, [onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
+  }, [watching, onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
 
   useEffect(() => {
     if (!watching) setFrame(null);
