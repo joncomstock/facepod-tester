@@ -880,6 +880,10 @@ describe("framePoll reducers", () => {
     expect(snapshotForSession(r, 1)).toBeNull(); // stale session
     expect(snapshotForSession(r, 2)).not.toBeNull();
   });
+  it("accepts any snapshot when the client generation is not yet synced (0)", () => {
+    const r = resp({ snapshot: { numberOfFaces: 1 }, sessionGeneration: 1 });
+    expect(snapshotForSession(r, 0)).not.toBeNull(); // no prior session to filter
+  });
 });
 ```
 
@@ -973,7 +977,10 @@ export function snapshotForSession(
   resp: FrameResponse,
   currentGeneration: number,
 ): LiveSnapshotState | null {
-  if (resp.sessionGeneration !== currentGeneration) return null; // stale session
+  // currentGeneration 0 = the client hasn't synced the live generation yet (the
+  // brief window right after connect, before status refreshes) — there is no prior
+  // session to filter, so accept. Otherwise discard cross-session snapshots.
+  if (currentGeneration !== 0 && resp.sessionGeneration !== currentGeneration) return null;
   const s = resp.snapshot;
   if (!s) return null;
   return {
@@ -1289,6 +1296,23 @@ In `src/live/useWatchLoop.ts`: change the import/annotations `LiveFrame` → `Ca
 ```
 
 Wrap each `api.capture(...)` / `api.match(...)` call so its promise is retained (`inFlightRef.current = p; const cap = await p;`) and pass the abort signal via a new `signal` option on the api methods (add `signal?: AbortSignal` to `api.capture`/`api.match` in `src/api.ts`, forwarding it as `fetch`'s `signal`). Return `{ stopAndDrain: () => stopRef.current() }` from the hook, and in the effect cleanup call `void stopRef.current()` instead of only flipping the boolean.
+
+**Also add an abort guard to the existing `catch` block** (`useWatchLoop.ts:53`). Today the catch reports any error whose name `!== "BusyError"`; once `stopAndDrain` aborts the in-flight `api.capture`, that rejects with `AbortError` (name `"AbortError"`, ≠ `"BusyError"`), which would call `onError` and surface a spurious error on every End session. Add `if (!runningRef.current) break;` as the **first line of the catch** (mirroring `useFramePoll`'s catch), so a teardown-triggered abort exits the loop quietly instead of reporting an error:
+
+```ts
+        } catch (e) {
+          if (!runningRef.current) break; // aborted by stopAndDrain — not an error
+          const detail = e instanceof ApiError
+            ? e.detail
+            : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
+          // 409 BusyError is transient (a manual op raced us) — pause and retry.
+          if (detail.name !== "BusyError") {
+            onError(detail);
+            runningRef.current = false;
+            break;
+          }
+        }
+```
 
 In `src/api.ts`, extend `request`/`post` to accept and pass a `signal`. Minimal change: add an optional 2nd arg to `post` and the capture/match wrappers:
 
