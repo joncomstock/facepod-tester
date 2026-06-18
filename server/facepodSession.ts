@@ -251,10 +251,13 @@ export class FacePodSession {
 
   /** Dispose any existing session, then create + connect a new one. */
   async connect(config: ResolvedConfig): Promise<DeviceInfo> {
+    // Drain both lanes before acquiring the busy lock so a still-settling Lane-2
+    // op can't turn a reconnect into a BusyError (mirrors disconnect()).
+    await this.#quiesceFrameLane();
+    await this.#quiesceOpLane();
     return await this.#track(async () => {
       // Hold the busy lock across teardown + build so a prior session is never
       // torn down only to then reject the new connect on a race.
-      await this.#quiesceFrameLane();
       await this.#teardown();
       this.#mockScenario = config.mockScenario; // read live by the mock client
       const fp = await this.#makeLifecycle(config);
@@ -361,6 +364,7 @@ export class FacePodSession {
       this.#pollIntervalMs = null;
       this.#mock = false;
       this.#cameraOpen = false;
+      this.#latestSnapshot = null;
     }
   }
 
