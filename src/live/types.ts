@@ -10,7 +10,7 @@ export interface LiveThresholds {
   minimalMatchScore: number;
 }
 
-export interface LiveFrame {
+export interface CaptureFrame {
   /** The detected-face image from the capture result (v1 "feed"). */
   image: { datatype: string; data: string } | null;
   quality: number;

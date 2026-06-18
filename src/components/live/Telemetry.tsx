@@ -1,9 +1,10 @@
 import { barState } from "../../live/logic.ts";
-import type { LiveFrame, LiveThresholds, Verdict } from "../../live/types.ts";
+import type { CaptureFrame, LiveThresholds, Verdict } from "../../live/types.ts";
 import type { DeviceParameters } from "../../api.ts";
 
 interface Props {
-  frame: LiveFrame | null;
+  frame: CaptureFrame | null;
+  liveQuality?: number | null;
   thresholds: LiveThresholds;
   hasReference: boolean;
   verdict: Verdict;
@@ -52,7 +53,7 @@ function Bar(
 }
 
 /** Three threshold-marker bars + the verdict chip (docs/UI-FEEDBACK.md §4). */
-export function Telemetry({ frame, thresholds, hasReference, verdict, deviceParams }: Props) {
+export function Telemetry({ frame, liveQuality, thresholds, hasReference, verdict, deviceParams }: Props) {
   const cls = verdict.state === "accept" ? "accept"
     : verdict.state === "reject" ? "reject"
     : "searching";
@@ -69,7 +70,7 @@ export function Telemetry({ frame, thresholds, hasReference, verdict, devicePara
         )}
       </div>
       <div className="telem">
-        <Bar name="Quality" value={frame?.quality ?? null} threshold={thresholds.minimalQuality} higherPasses label={`min ${Math.round(thresholds.minimalQuality * 100)}`} deviceThreshold={deviceParams?.recMinVerifyTemplateQuality} />
+        <Bar name="Quality" value={liveQuality ?? frame?.quality ?? null} threshold={thresholds.minimalQuality} higherPasses label={`min ${Math.round(thresholds.minimalQuality * 100)}`} deviceThreshold={deviceParams?.recMinVerifyTemplateQuality} />
         <Bar name="Liveness" value={frame ? frame.spoofScore : null} threshold={thresholds.maximalSpoofScore} higherPasses={false} label={`max ${Math.round(thresholds.maximalSpoofScore * 100)}`} deviceThreshold={deviceParams?.recMaxSpoofProbability} />
         <Bar name="Match" value={hasReference ? (frame?.matchScore ?? null) : null} threshold={thresholds.minimalMatchScore} higherPasses label={`min ${Math.round(thresholds.minimalMatchScore * 100)}`} deviceThreshold={deviceParams?.recMinMatchScoreL1} />
       </div>

@@ -6,7 +6,7 @@ import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision } from "../../live/overlayDisplay.ts";
 import { computeVerdict, guidanceFor } from "../../live/logic.ts";
-import type { LiveFrame, LiveThresholds } from "../../live/types.ts";
+import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
@@ -29,7 +29,7 @@ interface Props {
 export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
-  const [frame, setFrame] = useState<LiveFrame | null>(null);
+  const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
 
   const hasReference = refTemplate !== null;
@@ -40,7 +40,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const guidance = g.text;
   const guidanceDerived = g.derived;
 
-  useWatchLoop({
+  const { stopAndDrain: stopWatch } = useWatchLoop({
     active: watching && scene === "live",
     refTemplate,
     thresholds,
@@ -90,19 +90,20 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [onError]);
 
   const endSession = useCallback(async () => {
-    await stopFrames();
+    setWatching(false);
+    await stopFrames();   // 1. stop Lane 1, await in-flight frame request
+    await stopWatch();    // 2. abort + drain Lane 2 (capture/match)
     try {
-      await api.disconnect();
+      await api.disconnect(); // 3. server flips #closing, drains frame-reads, disposes
     } catch (e) {
       onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
     }
-    setWatching(false);
-    setFrame(null);
+    setFrame(null);       // 4. clear client state
     setRefTemplate(null);
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
-  }, [onError, onSessionChange, onClearParams, stopFrames]);
+  }, [onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
 
   useEffect(() => {
     if (!watching) setFrame(null);
@@ -162,7 +163,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   return (
     <div className="live-shell">
       <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} />
-      <Telemetry frame={frame} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
+      <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
       <ActionDock
         watching={watching}
         hasReference={hasReference}

@@ -1,29 +1,38 @@
 import { useEffect, useRef } from "react";
 import { api, ApiError, type NormalizedError } from "../api.ts";
-import { toLiveFrame } from "./logic.ts";
-import type { LiveFrame, LiveThresholds } from "./types.ts";
+import { toCaptureFrame } from "./logic.ts";
+import type { CaptureFrame, LiveThresholds } from "./types.ts";
 
 interface Options {
   active: boolean;
   refTemplate: string | null;
   thresholds: LiveThresholds;
-  onFrame: (f: LiveFrame) => void;
+  onFrame: (f: CaptureFrame) => void;
   onError: (e: NormalizedError) => void;
   intervalMs?: number;
 }
 
 /**
- * Host-driven continuous watch (docs/UI-FEEDBACK.md §3, loop shape 2): while
- * `active`, repeatedly capture (serialized — never overlap the single device
- * context) and, when a reference template is held, match the live template
- * against it. Each result is folded into a LiveFrame and handed to `onFrame`.
- * A device error stops the loop and is reported via `onError`.
+ * Host-driven continuous watch (Lane 2): while `active`, repeatedly capture
+ * (serialized by the server's #track) and, when a reference is held, match the
+ * live template against it; each result is folded into a CaptureFrame for
+ * `onFrame`. stopAndDrain() aborts the in-flight op and awaits it — call it
+ * BEFORE POST /api/disconnect during teardown.
  */
-export function useWatchLoop(opts: Options): void {
-  // Keep latest opts in a ref so the loop reads fresh values without re-arming.
+export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void> } {
   const ref = useRef(opts);
   ref.current = opts;
   const runningRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef<Promise<unknown> | null>(null);
+
+  const stopAndDrain = async () => {
+    runningRef.current = false;
+    abortRef.current?.abort();
+    try { await inFlightRef.current; } catch { /* AbortError expected */ }
+  };
+  const stopRef = useRef(stopAndDrain);
+  stopRef.current = stopAndDrain;
 
   useEffect(() => {
     if (!opts.active) return;
@@ -32,25 +41,32 @@ export function useWatchLoop(opts: Options): void {
     const loop = async () => {
       while (runningRef.current && ref.current.active) {
         const { thresholds, refTemplate, onFrame, onError } = ref.current;
+        const ac = new AbortController();
+        abortRef.current = ac;
         try {
-          const cap = await api.capture({
+          const capP = api.capture({
             minimalQuality: thresholds.minimalQuality,
             maximalSpoofScore: thresholds.maximalSpoofScore,
             timeoutMs: 1500, // bound a live capture so the loop stays responsive
-          });
+          }, ac.signal);
+          inFlightRef.current = capP;
+          const cap = await capP;
           let match = null;
           const live = cap.result.template?.data ?? null;
           if (refTemplate && live) {
-            const m = await api.match({
+            const matchP = api.match({
               template1: refTemplate,
               template2: live,
               minimalMatchScore: thresholds.minimalMatchScore,
-            });
+            }, ac.signal);
+            inFlightRef.current = matchP;
+            const m = await matchP;
             match = m.result;
           }
           if (!runningRef.current) break;
-          onFrame(toLiveFrame(cap.result, match));
+          onFrame(toCaptureFrame(cap.result, match));
         } catch (e) {
+          if (!runningRef.current) break; // aborted by stopAndDrain — not an error
           const detail = e instanceof ApiError
             ? e.detail
             : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
@@ -66,8 +82,8 @@ export function useWatchLoop(opts: Options): void {
     };
     void loop().catch(() => {});
 
-    return () => {
-      runningRef.current = false;
-    };
+    return () => { void stopRef.current(); };
   }, [opts.active]);
+
+  return { stopAndDrain: () => stopRef.current() };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, guidanceFor, positioningGuidance, toLiveFrame } from "./logic.ts";
-import type { LiveFrame, LiveThresholds } from "./types.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, positioningGuidance, toCaptureFrame } from "./logic.ts";
+import type { CaptureFrame, LiveThresholds } from "./types.ts";
 
 const baseCapture: CaptureResult = {
   quality: 0.92,
@@ -14,9 +14,9 @@ const baseCapture: CaptureResult = {
   faceStatus: "ok",
 };
 
-describe("toLiveFrame", () => {
-  it("maps a capture result into a LiveFrame with no match", () => {
-    const f = toLiveFrame(baseCapture);
+describe("toCaptureFrame", () => {
+  it("maps a capture result into a CaptureFrame with no match", () => {
+    const f = toCaptureFrame(baseCapture);
     expect(f.image).toEqual({ datatype: "png", data: "AAAA" });
     expect(f.quality).toBe(0.92);
     expect(f.spoofScore).toBe(0.08);
@@ -30,13 +30,13 @@ describe("toLiveFrame", () => {
 
   it("includes match fields when a match result is supplied", () => {
     const match: MatchResult = { match: true, matchScore: 0.9 };
-    const f = toLiveFrame(baseCapture, match);
+    const f = toCaptureFrame(baseCapture, match);
     expect(f.matchScore).toBe(0.9);
     expect(f.matchPassed).toBe(true);
   });
 
   it("nulls image/boundingBox when absent", () => {
-    const f = toLiveFrame({
+    const f = toCaptureFrame({
       quality: 0,
       numberOfFaces: 0,
       liveness: { spoofScore: 0, passed: true },
@@ -53,7 +53,7 @@ const T: LiveThresholds = {
   minimalMatchScore: 0.7,
 };
 
-function frame(over: Partial<LiveFrame> = {}): LiveFrame {
+function frame(over: Partial<CaptureFrame> = {}): CaptureFrame {
   return {
     image: null,
     quality: 0.92,

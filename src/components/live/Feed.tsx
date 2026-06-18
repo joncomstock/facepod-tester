@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { LiveFrame, Verdict } from "../../live/types.ts";
+import type { CaptureFrame, Verdict } from "../../live/types.ts";
 import { mapBox, mapPoint } from "../../live/overlay.ts";
 
 interface Props {
-  frame: LiveFrame | null;
+  frame: CaptureFrame | null;
   verdict: Verdict;
   guidance: string | null;
   /** Lane 1 full-frame feed (base64). */

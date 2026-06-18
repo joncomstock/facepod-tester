@@ -1,12 +1,12 @@
 /** Pure Live-HUD logic — no React/DOM, fully unit-tested. */
 import type { CaptureResult, MatchResult, PositioningFeedback } from "../api.ts";
-import type { BarView, LiveFrame, LiveThresholds, Verdict } from "./types.ts";
+import type { BarView, CaptureFrame, LiveThresholds, Verdict } from "./types.ts";
 
 /** Fold a capture result (+ optional match) into the HUD's frame shape. */
-export function toLiveFrame(
+export function toCaptureFrame(
   cap: CaptureResult,
   match?: MatchResult | null,
-): LiveFrame {
+): CaptureFrame {
   return {
     image: cap.image ? { datatype: cap.image.datatype, data: cap.image.data } : null,
     quality: cap.quality,
@@ -47,7 +47,7 @@ export function barState(
  *   any hard fail → reject(reasons); otherwise (face, no fail, not captured) → acquiring.
  */
 export function computeVerdict(
-  frame: LiveFrame,
+  frame: CaptureFrame,
   t: LiveThresholds,
   hasReference: boolean,
 ): Verdict {
@@ -77,7 +77,7 @@ export function computeVerdict(
  */
 const MIN_FACE_AREA = 14_400; // px² (≈120×120); below → likely too far. Heuristic.
 
-export function deriveGuidance(frame: LiveFrame): string | null {
+export function deriveGuidance(frame: CaptureFrame): string | null {
   if (frame.numberOfFaces < 1) return "Step in front of the camera";
   const bb = frame.boundingBox;
   if (bb && bb.width * bb.height < MIN_FACE_AREA) return "Move a little closer";
@@ -108,7 +108,7 @@ export function positioningGuidance(fb: PositioningFeedback): string[] {
  * (derived=false); otherwise falls back to the bbox/faceStatus heuristic
  * (derived=true). Real "ok" + not-captured → "Hold still"; real "ok" + captured → null.
  */
-export function guidanceFor(frame: LiveFrame): { text: string | null; derived: boolean } {
+export function guidanceFor(frame: CaptureFrame): { text: string | null; derived: boolean } {
   const fb = frame.positioningFeedback;
   if (fb && frame.numberOfFaces >= 1) {
     if (!fb.ok) {
