@@ -197,6 +197,20 @@ export interface CaptureAndMatchResult {
   match: MatchResult;
 }
 
+export interface FrameResponse {
+  frame: { datatype: string; data: string; seq: string } | null;
+  snapshot: {
+    numberOfFaces: number;
+    quality?: number;
+    boundingBox?: BoundingBox;
+    landmarks?: Landmark[];
+    positioningFeedback?: PositioningFeedback;
+  } | null;
+  snapshotAgeMs: number | null;
+  captureId: number;
+  sessionGeneration: number;
+}
+
 /** Error carrying the backend's normalized envelope. */
 export class ApiError extends Error {
   readonly detail: NormalizedError;
@@ -295,4 +309,7 @@ export const api = {
     minimalMatchScore: number;
     capture: CaptureRequest;
   }) => post<{ result: CaptureAndMatchResult }>("/api/capture-and-match", req),
+
+  getVideoFrame: (lastSeq: string, signal?: AbortSignal) =>
+    request<FrameResponse>(`/api/video-frame?lastSeq=${encodeURIComponent(lastSeq)}`, { signal }),
 };

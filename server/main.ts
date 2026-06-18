@@ -24,6 +24,7 @@ import { normalizeError } from "./errors.ts";
 import { checkRequestGate, TESTER_HEADER } from "./security.ts";
 import { FacePodSession } from "./facepodSession.ts";
 import { isMockScenario, MOCK_SCENARIOS } from "./mockClient.ts";
+import { toFramePayload } from "./videoFramePayload.ts";
 import type { ImageDatatype } from "@eai/hid/facepod";
 
 const session = new FacePodSession();
@@ -183,6 +184,21 @@ app.get(
   handle(async (c) => c.json({ parameters: await session.getParameters() })),
 );
 
+app.get(
+  "/api/video-frame",
+  handle(async (c) => {
+    const raw = c.req.query("lastSeq");
+    let lastSeq: bigint | undefined;
+    try {
+      lastSeq = raw != null && raw !== "" ? BigInt(raw) : undefined;
+    } catch {
+      lastSeq = undefined; // malformed cursor → treat as "latest"
+    }
+    const read = await session.readFrame(lastSeq);
+    return c.json(toFramePayload(read));
+  }),
+);
+
 app.post(
   "/api/camera/open",
   handle(async (c) => {
@@ -214,7 +230,7 @@ app.post(
       minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
       maximalSpoofScore: num(body.maximalSpoofScore),
       timeoutMs: num(body.timeoutMs),
-    });
+    }, c.req.raw.signal);
     return c.json({ result });
   }),
 );
@@ -289,7 +305,7 @@ app.post(
         body.minimalMatchScore,
         "minimalMatchScore",
       ),
-    });
+    }, c.req.raw.signal);
     return c.json({ result });
   }),
 );
