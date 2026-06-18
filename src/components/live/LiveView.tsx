@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type NormalizedError, type SessionStatus } from "../../api.ts";
 import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
@@ -7,10 +7,12 @@ import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision } from "../../live/overlayDisplay.ts";
 import { computeVerdict, guidanceFor } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
+import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
 import { LiveDataDisclosure } from "./LiveDataDisclosure.tsx";
+import { DerivedHints } from "./DerivedHints.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -32,6 +34,10 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
   const [lastTemplate, setLastTemplate] = useState<string | null>(null);
+  const [brightness, setBrightness] = useState<number | null>(null);
+  const [frameNat, setFrameNat] = useState<{ w: number; h: number } | null>(null);
+  const frameTickRef = useRef(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const hasReference = refTemplate !== null;
   const verdict = frame
@@ -111,6 +117,26 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     if (!watching) setFrame(null);
   }, [watching]);
 
+  useEffect(() => {
+    if (!videoFrame) return;
+    if (frameTickRef.current++ % 8 !== 0) return; // throttle: ~1 of 8 frames
+    const img = new Image();
+    img.onload = () => {
+      const cv = (canvasRef.current ??= document.createElement("canvas"));
+      cv.width = 32; cv.height = 57; // tiny, ~9:16; just for a luminance estimate
+      const ctx = cv.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      setBrightness(meanLuminance(ctx.getImageData(0, 0, cv.width, cv.height).data));
+    };
+    img.src = `data:image/${videoFrame.datatype === "jpg" ? "jpeg" : videoFrame.datatype};base64,${videoFrame.data}`;
+  }, [videoFrame]);
+
+  const distance = distanceHint(
+    liveSnapshot?.boundingBox ?? null,
+    frameNat ? frameNat.w * frameNat.h : 0,
+  );
+
   const useCurrentFace = useCallback(() => {
     if (lastTemplate) setRefTemplate(lastTemplate);
   }, [lastTemplate]);
@@ -168,8 +194,9 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell">
-      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} />
+      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} onNaturalSize={setFrameNat} />
       <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
+      <DerivedHints brightness={brightness} distance={distance} />
       <ActionDock
         watching={watching}
         hasReference={hasReference}

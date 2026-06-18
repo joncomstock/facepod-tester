@@ -12,6 +12,8 @@ interface Props {
   liveFaces?: number;
   /** Overlay to draw on the full frame: device-raster coords + opacity (or null). */
   overlay?: { box: { x: number; y: number; width: number; height: number }; points: { x: number; y: number }[]; opacity: number } | null;
+  /** Called once when the image's natural dimensions are first known. */
+  onNaturalSize?: (s: { w: number; h: number }) => void;
 }
 
 function imgSrc(datatype: string, data: string): string {
@@ -20,7 +22,7 @@ function imgSrc(datatype: string, data: string): string {
 
 /** The viewfinder: full live frame in a 9:16 box with a bbox + landmark overlay
  *  mapped from the frame's natural pixel dims (no cover-crop, no transform). */
-export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, overlay = null }: Props) {
+export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, overlay = null, onNaturalSize }: Props) {
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   const img = videoFrame ?? frame?.image ?? null;
   const locked = verdict.state === "accept";
@@ -35,7 +37,11 @@ export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, o
               className="feed-img"
               src={imgSrc(img.datatype, img.data)}
               alt="live face"
-              onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+              onLoad={(e) => {
+                const s = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
+                setNat(s);
+                onNaturalSize?.(s);
+              }}
             />
           )
           : <div className="feed-empty" />}
