@@ -217,13 +217,28 @@ For the steady `good`/`low-quality`/`spoof` branch (the final `return` block), a
       });
 ```
 
-For the `no-face` branch, emit a face-absent snapshot (this drives the overlay's immediate-clear path) before returning:
+For the `no-face` scenario branch, emit a face-absent snapshot (this drives the overlay's immediate-clear path) before returning:
 
 ```ts
       await emit({ numberOfFaces: 0 });
 ```
 
-Leave `device-error` (rejects before emitting) unchanged. All mock coordinates lie within 360×640, matching `MOCK_FRAME`.
+For the **`approach` scenario's own early no-face steps** (the `if (n < 2) { return ... }` block at `mockClient.ts:154-161`), add the same face-absent emit before its return:
+
+```ts
+      if (n < 2) {
+        await emit({ numberOfFaces: 0 });
+        return Promise.resolve({
+          quality: 0,
+          numberOfFaces: 0,
+          liveness: { spoofScore: 0, passed: true },
+          isCaptured: false,
+          faceStatus: "no_face",
+        });
+      }
+```
+
+This is **required** for the two new tests, which use a fresh `client("approach")` whose first call has `n=0` and would otherwise return before any `emit` fires (no snapshots, and the abort callback never runs). Leave `device-error` (rejects before emitting) unchanged. All mock coordinates lie within 360×640, matching `MOCK_FRAME`.
 
 - [ ] **Step 5: Run tests + type-check to verify green**
 
@@ -721,6 +736,8 @@ git commit -m "feat(server): GET /api/video-frame endpoint, payload shaping, cli
 
 Add the Lane 1 poll hook and the pure overlay logic, and render the full frame with a percentage-mapped bbox + landmark overlay inside a 9:16 box. Pure functions are unit-tested; the hook + component are verified by mock-mode E2E. This task is **additive** — it does not rename `LiveFrame` (that is Task 4).
 
+**Testing note (reconciles spec §8):** §8 lists "`useFramePoll` de-dup + drain" and "`stopAndDrain` ordering" as unit tests. Vitest runs in **node env with no jsdom** (`vite.config.ts`), so a React hook cannot be rendered/unit-tested here. The de-dup + `lastSeq`-advance logic is therefore extracted into the pure `framePoll.ts` (`isFreshFrame`/`nextLastSeq`/`snapshotForSession`) and unit-tested; the hook *orchestration* (timer, AbortController drain, teardown ordering) is verified by the Step 9 mock-mode E2E (End session with no console errors / no use-after-dispose) — this is a deliberate, documented substitution, not a skipped requirement.
+
 **Files:**
 - Modify: `src/live/types.ts` (add `LiveSnapshotState`, additive)
 - Create: `src/live/overlay.ts`
@@ -1181,10 +1198,10 @@ Change the existing `.bbox` rule to use percentage positioning and **remove the 
 Run: `npm test`
 Expected: PASS (pure-logic suites).
 
-Run: `cd src && npx tsc -b --noEmit` (or `npm run build` from repo root for the full TS build)
+Run: `npm run build` (from repo root — this is `tsc -b && vite build`; it type-checks all of `src`)
 Expected: no type errors.
 
-Manual mock E2E: start `deno task dev:mock` and `npm run dev`, open the UI, Go Live, set scenario to **approach**, Start watching. Expected: the 360×640 mock frame renders as the feed; a green bbox + 3 landmark dots track on the frame and clear when the scenario reports no face; no ghost box.
+Manual mock E2E: start `deno task dev:mock` and `npm run dev`, open the UI, Go Live, set scenario to **approach**, Start watching. Expected: the 360×640 mock frame renders as the feed; a green bbox + **3 landmark dots** (the mock emits 3: eyes + nose; the real device emits 5) track on the frame and clear when the scenario reports no face; no ghost box. The overlay renders however many points the snapshot carries, so 3-in-mock / 5-on-device both work.
 
 - [ ] **Step 10: Commit**
 
@@ -1205,7 +1222,9 @@ Split state cleanly: the **live quality bar** streams from `LiveSnapshotState`; 
 - Modify: `src/live/logic.test.ts` (update names)
 - Modify: `src/live/useWatchLoop.ts` (AbortController + `stopAndDrain`; type rename)
 - Modify: `src/components/live/Telemetry.tsx` (live quality source; type rename)
-- Modify: `src/components/live/LiveView.tsx` (teardown order; live quality; sessionGeneration)
+- Modify: `src/components/live/Feed.tsx` (type rename only — `LiveFrame` → `CaptureFrame`)
+- Modify: `src/components/live/LiveDataDisclosure.tsx` (type rename only — `LiveFrame` → `CaptureFrame`)
+- Modify: `src/components/live/LiveView.tsx` (teardown order; live quality; sessionGeneration; type rename)
 - Modify: `server/facepodSession.ts` + `src/api.ts` (add `sessionGeneration` to `SessionStatus`)
 - Modify: `server/facepodSession.test.ts` (assert status carries generation)
 
@@ -1235,9 +1254,19 @@ Deno.test("status exposes a monotonic sessionGeneration", async () => {
 Run: `npm test` → FAIL (`toCaptureFrame`/`CaptureFrame` not exported).
 Run: `deno test --allow-env --allow-read server/facepodSession.test.ts` → FAIL (`sessionGeneration` not on status).
 
-- [ ] **Step 3: Rename the type and the mapper**
+- [ ] **Step 3: Rename the type and the mapper across EVERY referencing file**
 
-In `src/live/types.ts`, rename `export interface LiveFrame {` to `export interface CaptureFrame {` (leave all fields). In `src/live/logic.ts`: rename `export function toLiveFrame(` to `export function toCaptureFrame(`, change its return type annotation `): LiveFrame {` to `): CaptureFrame {`, and update the `import type { ... LiveFrame ... }` to `CaptureFrame`. Update every other `LiveFrame` reference in `logic.ts` (e.g. in `computeVerdict`, `deriveGuidance`, `guidanceFor` signatures) to `CaptureFrame`.
+`tsconfig.json` has `"include": ["src"]` with `strict: true`, so `npm run build` type-checks all of `src` — a single missed reference fails the build. `grep -rn "LiveFrame\|toLiveFrame" src/` returns hits in **seven** non-test files; rename in all of them:
+
+- `src/live/types.ts` — `export interface LiveFrame {` → `export interface CaptureFrame {` (leave all fields; the `liveTemplate` field is added in Task 5).
+- `src/live/logic.ts` — `export function toLiveFrame(` → `export function toCaptureFrame(`; return type `): LiveFrame {` → `): CaptureFrame {`; the `import type { ... LiveFrame ... }`; and every `LiveFrame` annotation in `computeVerdict`, `deriveGuidance`, `guidanceFor`.
+- `src/live/useWatchLoop.ts` — `import { toLiveFrame }` → `toCaptureFrame`; `import type { LiveFrame, ... }` → `CaptureFrame`; `onFrame: (f: LiveFrame) => void` → `CaptureFrame`; the `onFrame(toLiveFrame(...))` call → `toCaptureFrame`.
+- `src/components/live/Telemetry.tsx` — `import type { LiveFrame, ... }` → `CaptureFrame`; the `frame: LiveFrame | null` prop.
+- `src/components/live/Feed.tsx` — `import type { LiveFrame, Verdict }` → `CaptureFrame`; the `frame: LiveFrame | null` prop. **(This file was rewritten in Task 3 and still imports `LiveFrame` — it MUST be renamed here or the build fails.)**
+- `src/components/live/LiveDataDisclosure.tsx` — `import type { LiveFrame }` → `CaptureFrame`; the `{ frame: LiveFrame | null }` annotation. **(Untouched by Tasks 0–3, so easy to miss — it is the second orphan that fails `tsc -b`.)**
+- `src/components/live/LiveView.tsx` — `import type { LiveFrame, LiveThresholds }` → `CaptureFrame`; `useState<LiveFrame | null>(null)` → `CaptureFrame`.
+
+Also update `src/live/logic.test.ts` per Step 1 (already covered).
 
 - [ ] **Step 4: Update `useWatchLoop` — rename + AbortController + `stopAndDrain`**
 
@@ -1311,7 +1340,7 @@ Manual mock E2E: Go Live + approach + watch; the **Quality** bar updates smoothl
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/live/types.ts src/live/logic.ts src/live/logic.test.ts src/live/useWatchLoop.ts src/components/live/Telemetry.tsx src/components/live/LiveView.tsx src/api.ts server/facepodSession.ts server/facepodSession.test.ts
+git add src/live/types.ts src/live/logic.ts src/live/logic.test.ts src/live/useWatchLoop.ts src/components/live/Telemetry.tsx src/components/live/Feed.tsx src/components/live/LiveDataDisclosure.tsx src/components/live/LiveView.tsx src/api.ts server/facepodSession.ts server/facepodSession.test.ts
 git commit -m "feat(live): stream live quality from snapshot, split CaptureFrame verdict, drain both lanes on teardown"
 ```
 
@@ -1567,5 +1596,5 @@ git commit -m "feat(live): derived brightness/distance hints (labeled, not HID-m
 - [ ] `deno check server/main.ts` → PASS
 - [ ] `npm test` → all PASS
 - [ ] `npm run build` → no type errors
-- [ ] Mock-mode E2E (the primary dev path): `deno task dev:mock` + `npm run dev` → Go Live → **approach** scenario → Start watching. Confirm: full-frame feed renders; bbox + 5-landmark overlay tracks on the frame and clears immediately on no-face (no ghost box); Quality bar streams live; Liveness/Match/verdict update per op (fail-closed); positioning guidance updates live; capture-and-hold sets a reference with no extra capture; derived hints labeled and throttled; End session drains cleanly (no console errors), reconnect advances the generation.
+- [ ] Mock-mode E2E (the primary dev path): `deno task dev:mock` + `npm run dev` → Go Live → **approach** scenario → Start watching. Confirm: full-frame feed renders; bbox + landmark overlay (3 dots in mock, 5 on device) tracks on the frame and clears immediately on no-face (no ghost box); Quality bar streams live; Liveness/Match/verdict update per op (fail-closed); positioning guidance updates live; capture-and-hold sets a reference with no extra capture; derived hints labeled and throttled; End session drains cleanly (no console errors), reconnect advances the generation.
 - [ ] On-device verification (operator-run, separate): real ~8 fps feed at 1080×1920; overlay registration correct on the live frame; teardown drains with no use-after-dispose; measure base64 throughput/CPU and note whether the binary-endpoint fallback is warranted.
