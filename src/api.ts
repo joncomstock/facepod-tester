@@ -162,6 +162,7 @@ export interface SessionStatus {
   mock: boolean;
   scenario: MockScenario | null;
   lastError: NormalizedError | null;
+  sessionGeneration: number;
 }
 
 export interface NormalizedError {
@@ -194,6 +195,20 @@ export interface CaptureAndMatchResult {
   reference: ProcessResult;
   live: CaptureResult;
   match: MatchResult;
+}
+
+export interface FrameResponse {
+  frame: { datatype: string; data: string; seq: string } | null;
+  snapshot: {
+    numberOfFaces: number;
+    quality?: number;
+    boundingBox?: BoundingBox;
+    landmarks?: Landmark[];
+    positioningFeedback?: PositioningFeedback;
+  } | null;
+  snapshotAgeMs: number | null;
+  captureId: number;
+  sessionGeneration: number;
 }
 
 /** Error carrying the backend's normalized envelope. */
@@ -242,11 +257,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function post<T>(path: string, payload?: unknown): Promise<T> {
-  return request<T>(path, {
-    method: "POST",
-    body: JSON.stringify(payload ?? {}),
-  });
+function post<T>(path: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: "POST", body: JSON.stringify(payload ?? {}), signal });
 }
 
 export const api = {
@@ -275,8 +287,8 @@ export const api = {
   closeCamera: () =>
     post<{ cameraOpen: false; status: SessionStatus }>("/api/camera/close"),
 
-  capture: (req: CaptureRequest) =>
-    post<{ result: CaptureResult }>("/api/capture", req),
+  capture: (req: CaptureRequest, signal?: AbortSignal) =>
+    post<{ result: CaptureResult }>("/api/capture", req, signal),
 
   processImage: (req: {
     image: string;
@@ -285,8 +297,8 @@ export const api = {
     maximalSpoofScore?: number;
   }) => post<{ result: ProcessResult }>("/api/process-image", req),
 
-  match: (req: { template1: string; template2: string; minimalMatchScore: number }) =>
-    post<{ result: MatchResult }>("/api/match", req),
+  match: (req: { template1: string; template2: string; minimalMatchScore: number }, signal?: AbortSignal) =>
+    post<{ result: MatchResult }>("/api/match", req, signal),
 
   captureAndMatch: (req: {
     image: string;
@@ -294,4 +306,7 @@ export const api = {
     minimalMatchScore: number;
     capture: CaptureRequest;
   }) => post<{ result: CaptureAndMatchResult }>("/api/capture-and-match", req),
+
+  getVideoFrame: (lastSeq: string, signal?: AbortSignal) =>
+    request<FrameResponse>(`/api/video-frame?lastSeq=${encodeURIComponent(lastSeq)}`, { signal }),
 };

@@ -7,10 +7,12 @@ interface Props {
   onPickReference: (file: File) => void;
   onClearReference: () => void;
   onEnd: () => void;
+  onUseCurrentFace: () => void;
+  canUseCurrentFace: boolean;
 }
 
 /** Watch toggle + in-memory reference control (no persistence per constraints). */
-export function ActionDock({ watching, hasReference, onToggleWatch, onPickReference, onClearReference, onEnd }: Props) {
+export function ActionDock({ watching, hasReference, onToggleWatch, onPickReference, onClearReference, onEnd, onUseCurrentFace, canUseCurrentFace }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div className="dock">
@@ -28,9 +30,14 @@ export function ActionDock({ watching, hasReference, onToggleWatch, onPickRefere
             </span>
           )
           : (
-            <button className="link-btn" onClick={() => fileRef.current?.click()}>
-              Set reference…
-            </button>
+            <>
+              <button className="link-btn" onClick={() => fileRef.current?.click()}>
+                Set reference…
+              </button>
+              <button className="link-btn" disabled={!canUseCurrentFace} onClick={onUseCurrentFace}>
+                Use current face
+              </button>
+            </>
           )}
       </div>
       <input

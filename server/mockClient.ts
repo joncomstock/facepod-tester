@@ -11,6 +11,7 @@
  * session can flip scenarios live (no reconnect). See FacePodSession.
  */
 
+import { decodeBase64 } from "@std/encoding/base64";
 import {
   type CameraInfo,
   type CaptureOptions,
@@ -21,11 +22,13 @@ import {
   FaceModuleApiError,
   type FaceModuleClient,
   type FaceTemplate,
+  type LiveSnapshot,
   type MatchOptions,
   type MatchResult,
   type OpenContextOptions,
   type ProcessOptions,
   type ProcessResult,
+  type VideoFrame,
 } from "@eai/hid/facepod";
 
 /** Selectable mock behaviours for exercising happy + failure paths. */
@@ -50,6 +53,13 @@ export function isMockScenario(value: unknown): value is MockScenario {
 // (Reference processing echoes the uploaded image instead — see processImage.)
 const PLACEHOLDER_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** Synthetic preview frame: a solid 360×640 (9:16) PNG. Its pixel space is the
+ *  coordinate space of the mock bbox/landmarks, so the overlay maps correctly. */
+const MOCK_FRAME_W = 360;
+const MOCK_FRAME_H = 640;
+const MOCK_FRAME_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAWgAAAKACAYAAACxGuKnAAAGyElEQVR42u3UMQ0AAAjAMDSggAv/DsEGCT1qYMciqweAe0IEAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgxYBwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGsCghQAwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwaAIMGMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgxYBwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoIQAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgxYBwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoAEwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBjBoIQAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGwKABDBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEwaACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoEUAMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAQxaBACDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAAwawKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBoAgwYwaAAMGsCgATBoAIMGwKABMGgAgwbAoAEMGgCDBsCgAQwaAIMGMGgADBrAoEUAMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwbAoAEMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgATBoAIMGwKABDBoAgwYwaAAMGgCDBjBoAAwawKABMGgADBrAoAEwaACDBsCgAX5bX0oiq4f1aGkAAAAASUVORK5CYII=";
 
 // Deterministic template payloads. Distinct ref/live values prove that match
 // scoring is genuinely comparing two different templates.
@@ -92,6 +102,7 @@ function deviceError(op: string): FaceModuleApiError {
 export class DeterministicMockClient implements FaceModuleClient {
   readonly #scenario: () => MockScenario;
   #approachTick = 0;
+  #frameSeq = 0n; // per-instance monotonic preview cursor (declare with the other #fields)
 
   /** @param scenario provider read on every call, so scenarios switch live. */
   constructor(scenario: () => MockScenario = () => "good") {
@@ -134,6 +145,22 @@ export class DeterministicMockClient implements FaceModuleClient {
     });
   }
 
+  // Pure preview read; mirrors the lib's getVideoFrame (no op-lock, may be called
+  // concurrently with captureAndProcess). Models a FREE-RUNNING camera: a new frame
+  // is produced for every poll, so the feed stays live under the real client pattern
+  // (useFramePoll sends -1 once, then echoes the last returned seq each poll). The
+  // earlier "honor the cursor, null when caught up" model froze the feed because the
+  // client never re-sends -1. The real device's cursor/backpressure semantics are
+  // exercised by the client's pure framePoll unit tests, not the mock.
+  getVideoFrame(_lastSeq?: bigint): Promise<VideoFrame | null> {
+    this.#frameSeq += 1n; // the simulated camera advanced since the last poll
+    return Promise.resolve(this.#frame(this.#frameSeq));
+  }
+
+  #frame(seq: bigint): VideoFrame {
+    return { bytes: decodeBase64(MOCK_FRAME_PNG_BASE64), format: "png", seq };
+  }
+
   openCameraContext(_opts?: OpenContextOptions): Promise<void> {
     return Promise.resolve();
   }
@@ -142,16 +169,31 @@ export class DeterministicMockClient implements FaceModuleClient {
     return Promise.resolve();
   }
 
-  captureAndProcess(
+  async captureAndProcess(
     opts: CaptureOptions,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
+    onIntermediate?: (snap: LiveSnapshot) => void | Promise<void>,
   ): Promise<CaptureResult> {
+    // Stream a few live snapshots (overlay metadata only — never a verdict signal),
+    // spaced over an async interval, so the tester exercises the real onIntermediate
+    // cadence. Abort promptly if signalled.
+    const emit = async (snap: LiveSnapshot) => {
+      for (let i = 0; i < 3; i++) {
+        if (signal?.aborted) {
+          throw Object.assign(new Error("Capture aborted"), { name: "AbortError" });
+        }
+        await onIntermediate?.(snap);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    };
+
     const scenario = this.#scenario();
     if (scenario === "approach") {
       // 16-step loop: 0–2 no face, then quality + box ramp to a lock, then reset.
       const n = this.#approachTick % 16;
       this.#approachTick++;
       if (n < 2) {
+        await emit({ numberOfFaces: 0 });
         return Promise.resolve({
           quality: 0,
           numberOfFaces: 0,
@@ -166,6 +208,19 @@ export class DeterministicMockClient implements FaceModuleClient {
       const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
       const side = Math.round(120 + p * 120);
       const captured = quality >= opts.minimalQuality && passed;
+      await emit({
+        numberOfFaces: 1,
+        quality,
+        boundingBox: { x: 60, y: 40, width: side, height: Math.round(side * 1.2) },
+        landmarks: [
+          { type: "left_eye", x: 90, y: 110 },
+          { type: "right_eye", x: 170, y: 110 },
+          { type: "nose", x: 130, y: 160 },
+        ],
+        positioningFeedback: captured
+          ? { raw: 0, ok: true, flags: [], unknownBits: 0 }
+          : { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 },
+      });
       return Promise.resolve({
         quality,
         numberOfFaces: 1,
@@ -191,6 +246,7 @@ export class DeterministicMockClient implements FaceModuleClient {
     }
 
     if (scenario === "no-face") {
+      await emit({ numberOfFaces: 0 });
       return Promise.resolve({
         quality: 0,
         numberOfFaces: 0,
@@ -203,6 +259,17 @@ export class DeterministicMockClient implements FaceModuleClient {
     const quality = scenario === "low-quality" ? 0.34 : 0.92;
     const spoofScore = scenario === "spoof" ? 0.93 : 0.08;
     const passed = passedSpoof(spoofScore, opts.maximalSpoofScore);
+    await emit({
+      numberOfFaces: 1,
+      quality,
+      boundingBox: { x: 40, y: 30, width: 180, height: 220 },
+      landmarks: [
+        { type: "left_eye", x: 90, y: 110 },
+        { type: "right_eye", x: 170, y: 110 },
+        { type: "nose", x: 130, y: 160 },
+      ],
+      positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
+    });
     return Promise.resolve({
       quality,
       numberOfFaces: 1,

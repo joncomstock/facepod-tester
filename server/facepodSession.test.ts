@@ -1,8 +1,10 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
+  type CaptureResult,
   type FaceModuleClient,
   FaceModuleLifecycle,
   FACEPOD_DEFAULTS,
+  type VideoFrame,
 } from "@eai/hid/facepod";
 import { FacePodSession, type LifecycleFactory } from "./facepodSession.ts";
 import type { ResolvedConfig } from "./config.ts";
@@ -11,6 +13,42 @@ const MOCK_CONFIG: ResolvedConfig = {
   mock: true,
   mockScenario: "good",
 };
+
+const frame = (seq: bigint): VideoFrame => ({
+  bytes: new Uint8Array([Number(seq)]),
+  format: "png",
+  seq,
+});
+
+/** Minimal client whose getVideoFrame hands back the supplied promises in order. */
+function frameClient(frames: Promise<VideoFrame>[]): FaceModuleClient {
+  let i = 0;
+  return {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "SLOW-FRAME",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () =>
+      i < frames.length ? frames[i++] : Promise.resolve(null),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+}
 
 Deno.test("connect/disconnect happy path (mock) toggles connected state", async () => {
   const s = new FacePodSession();
@@ -127,6 +165,7 @@ Deno.test("failed connect leaves no live session and disposes the client", async
     },
     getCameraList: () => Promise.resolve([]),
     getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => Promise.resolve(null),
     openCameraContext: () => Promise.resolve(),
     closeCameraContext: () => Promise.resolve(),
     captureAndProcess: () =>
@@ -196,4 +235,264 @@ Deno.test("live mode (no override) routes through createFaceModuleFfi (USB/FFI o
     "requires Windows",
   );
   assertEquals(s.connected, false);
+});
+
+Deno.test("readFrame returns a frame in mock and advances seq", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const r1 = await s.readFrame(-1n);
+  if (!r1.frame) throw new Error("expected a frame");
+  assertEquals(r1.frame.format, "png");
+  assertEquals(typeof r1.sessionGeneration, "number");
+  // No capture has run yet → no snapshot buffered.
+  assertEquals(r1.snapshot, null);
+  assertEquals(r1.snapshotAgeMs, null);
+  await s.disconnect();
+});
+
+Deno.test("readFrame populates latestSnapshot after a capture writes it", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  s.setMockScenario("approach");
+  await s.capture({ minimalQuality: 0.7 }); // streams onIntermediate → buffer
+  const r = await s.readFrame(-1n);
+  assert(r.snapshot !== null, "snapshot should be buffered after a capture");
+  assert(r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0, "age computed server-side");
+  await s.disconnect();
+});
+
+Deno.test("sessionGeneration increments across reconnects (readFrame + status)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  const g1 = (await s.readFrame(-1n)).sessionGeneration;
+  assertEquals(s.status().sessionGeneration, g1); // status mirrors the live generation
+  await s.connect(MOCK_CONFIG); // reconnect over a live session
+  const g2 = (await s.readFrame(-1n)).sessionGeneration;
+  assert(g2 > g1, `generation must advance: ${g1} -> ${g2}`);
+  assertEquals(s.status().sessionGeneration, g2);
+  await s.disconnect();
+});
+
+Deno.test("readFrame returns null frame once closing (teardown gate)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  await s.disconnect(); // flips #closing then disposes
+  const r = await s.readFrame(-1n);
+  assertEquals(r.frame, null); // not connected / closing → no frame, no throw
+});
+
+Deno.test("connect over a live session drains an in-flight capture instead of throwing BusyError", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  s.setMockScenario("approach");
+  const capP = s.capture({ minimalQuality: 0.7 }); // in flight, holds the busy lock
+  const info = await s.connect(MOCK_CONFIG); // reconnect over live — must NOT throw BusyError
+  assertEquals(info.deviceId, "MOCK-FACEPOD-0001");
+  assertEquals(s.connected, true);
+  await capP.catch(() => {});
+  await s.disconnect();
+});
+
+Deno.test("failed reconnect (op wedged past the drain bound) restores #closing so the frame lane recovers", async () => {
+  // A capture that never settles within the drain bound forces connect()'s #track to
+  // reject with BusyError. connect must NOT leave #closing stuck (it set it true via
+  // #quiesceFrameLane, and the callback that resets it never ran) — else the retained
+  // live session's feed is dead forever.
+  let releaseCap!: () => void;
+  const hangingCap = new Promise<CaptureResult>((r) => {
+    releaseCap = () =>
+      r({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      });
+  });
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "WEDGED",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => Promise.resolve(frame(1n)),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () => hangingCap, // never settles until released
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory, { drainOpMs: 50 }); // tiny bound for the test
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+  const capP = s.capture({ minimalQuality: 0.5 }); // hangs, holds the busy lock
+
+  // Reconnect: the wedged op won't settle within 50ms → connect's #track BusyErrors.
+  await assertRejects(() => s.connect({ mock: false, mockScenario: "good" }), Error);
+
+  // The frame lane must be RESTORED on the retained session — not stuck closed.
+  const r = await s.readFrame(-1n);
+  assert(r.frame !== null, "frame lane must recover after a failed reconnect");
+
+  releaseCap();
+  await capP.catch(() => {});
+  await s.disconnect();
+});
+
+Deno.test("teardown refuses to dispose while a frame read is still in flight (seam contract)", async () => {
+  // A getVideoFrame read that never settles within the frame-drain bound must NOT be
+  // disposed under — disconnect retains the session and rejects instead.
+  let releaseRead!: () => void;
+  const hangingRead = new Promise<VideoFrame>((r) => {
+    releaseRead = () => r(frame(1n));
+  });
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "HUNG-READ",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => hangingRead, // never settles until released
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory, { drainFrameMs: 50 }); // tiny bound for the test
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+  const rp = s.readFrame(-1n); // in flight, never settles
+
+  // Drain bound expires with the read pending → disconnect must reject, NOT dispose.
+  await assertRejects(() => s.disconnect(), Error);
+  assertEquals(s.connected, true, "session retained — not disposed mid-read");
+
+  releaseRead();
+  await rp;
+  await s.disconnect(); // now the read has settled → drains and disposes cleanly
+  assertEquals(s.connected, false);
+});
+
+Deno.test("readFrame propagates a real read failure (records lastError + throws, not a silent 'no frame')", async () => {
+  const client: FaceModuleClient = {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "READ-ERR",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () =>
+      Promise.reject(
+        Object.assign(new Error("frame read boom"), {
+          name: "FaceModuleApiError",
+        }),
+      ),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
+  const s = new FacePodSession(factory);
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+
+  // A real read failure must PROPAGATE (→ error response → UI onError), not be masked
+  // as a silent frame:null. It is also recorded for GET /api/status.
+  await assertRejects(() => s.readFrame(-1n), Error, "frame read boom");
+  const err = s.status().lastError;
+  assert(err !== null, "a thrown read error must be recorded, not silently masked");
+  assertEquals(err?.message, "frame read boom");
+  await s.disconnect();
+});
+
+Deno.test("teardown drains ALL concurrent frame reads, not just the latest", async () => {
+  // Read A (issued first) resolves LATE; read B (the latest) resolves immediately.
+  // The old single-#inFlightFrame drain awaited only B and would dispose while A's
+  // FFI read was still live. Disconnect must wait for A.
+  let resolveA!: () => void;
+  let aResolved = false;
+  const fA = new Promise<VideoFrame>((r) => {
+    resolveA = () => {
+      aResolved = true;
+      r(frame(1n));
+    };
+  });
+  const fB = Promise.resolve(frame(2n));
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(
+      new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, frameClient([fA, fB])),
+    );
+  const s = new FacePodSession(factory);
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+
+  const rA = s.readFrame(-1n); // slow read, in flight
+  const rB = s.readFrame(-1n); // latest read, resolves now
+  await rB;
+
+  let discDone = false;
+  const disc = s.disconnect().then(() => {
+    discDone = true;
+  });
+  await new Promise((r) => setTimeout(r, 50));
+  assertEquals(
+    discDone,
+    false,
+    "disconnect must still be draining the earlier read A",
+  );
+  assertEquals(aResolved, false);
+
+  resolveA();
+  await disc;
+  await rA;
+  assert(discDone && aResolved, "disconnect completes only after A settles");
+  assertEquals(s.connected, false);
+});
+
+Deno.test("disconnect drains an in-flight capture instead of throwing BusyError", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  s.setMockScenario("approach"); // mock capture streams over ~90ms, holding #busy
+  const capP = s.capture({ minimalQuality: 0.7 }); // in flight, holds the busy lock
+  await s.disconnect(); // must NOT throw BusyError — drains the op first, then tears down
+  assertEquals(s.connected, false);
+  await capP.catch(() => {}); // let the capture settle
 });

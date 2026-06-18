@@ -4,7 +4,7 @@ import {
   isMockScenario,
   type MockScenario,
 } from "./mockClient.ts";
-import type { FaceImage } from "@eai/hid/facepod";
+import type { FaceImage, LiveSnapshot } from "@eai/hid/facepod";
 
 const REF_IMAGE: FaceImage = {
   modality: "face",
@@ -141,4 +141,42 @@ Deno.test("getParameters returns realistic params distinct from UI defaults", as
   assertEquals(p.encodingJpegQuality, 90);
   // all 34 fields populated (no undefined).
   assertEquals(Object.values(p).some((v) => v === undefined), false);
+});
+
+Deno.test("getVideoFrame: stays live under the real poll pattern (-1 then echo last seq)", async () => {
+  const c = client("good"); // a FRESH client → its own #frameSeq starts at 0
+  const f1 = await c.getVideoFrame(-1n); // first poll: "latest"
+  if (!f1) throw new Error("expected a first frame");
+  assertEquals(f1.format, "png");
+  assert(f1.bytes.length > 0, "frame must carry bytes");
+  // useFramePoll then echoes the LAST returned seq on every subsequent poll. Each
+  // poll must yield a strictly newer frame — the feed must NOT freeze after frame 1.
+  let last = f1.seq;
+  for (let i = 0; i < 5; i++) {
+    const f = await c.getVideoFrame(last); // echo last seq, exactly as the client does
+    if (!f) throw new Error(`feed froze at poll ${i}: got null for cursor ${last}`);
+    assert(f.seq > last, `seq must advance: ${last} -> ${f.seq}`);
+    last = f.seq;
+  }
+});
+
+Deno.test("captureAndProcess: streams several intermediate snapshots", async () => {
+  const c = client("approach");
+  const snaps: LiveSnapshot[] = [];
+  const r = await c.captureAndProcess(
+    { minimalQuality: 0.7, maximalSpoofScore: 0.5 },
+    undefined,
+    (s) => { snaps.push(s); },
+  );
+  assert(snaps.length >= 3, `expected >=3 intermediate snapshots, got ${snaps.length}`);
+  // Intermediate snapshots carry live overlay metadata, never a verdict signal.
+  assert(snaps.every((s) => typeof s.numberOfFaces === "number"), "numberOfFaces always present");
+  assert("liveness" in r, "final result carries liveness");
+});
+
+Deno.test("captureAndProcess: aborts promptly when signalled", async () => {
+  const c = client("approach");
+  const ac = new AbortController();
+  const p = c.captureAndProcess({ minimalQuality: 0.7 }, ac.signal, () => ac.abort());
+  await assertRejects(() => p, Error); // AbortError surfaces as a rejection
 });

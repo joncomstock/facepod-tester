@@ -1,12 +1,12 @@
 /** Pure Live-HUD logic — no React/DOM, fully unit-tested. */
 import type { CaptureResult, MatchResult, PositioningFeedback } from "../api.ts";
-import type { BarView, LiveFrame, LiveThresholds, Verdict } from "./types.ts";
+import type { BarView, CaptureFrame, LiveSnapshotState, LiveThresholds, Verdict } from "./types.ts";
 
 /** Fold a capture result (+ optional match) into the HUD's frame shape. */
-export function toLiveFrame(
+export function toCaptureFrame(
   cap: CaptureResult,
   match?: MatchResult | null,
-): LiveFrame {
+): CaptureFrame {
   return {
     image: cap.image ? { datatype: cap.image.datatype, data: cap.image.data } : null,
     quality: cap.quality,
@@ -20,6 +20,7 @@ export function toLiveFrame(
     matchPassed: match ? match.match : null,
     positioningFeedback: cap.positioningFeedback ?? null,
     landmarks: cap.landmarks ?? null,
+    liveTemplate: cap.template?.data ?? null,
   };
 }
 
@@ -47,7 +48,7 @@ export function barState(
  *   any hard fail → reject(reasons); otherwise (face, no fail, not captured) → acquiring.
  */
 export function computeVerdict(
-  frame: LiveFrame,
+  frame: CaptureFrame,
   t: LiveThresholds,
   hasReference: boolean,
 ): Verdict {
@@ -77,7 +78,7 @@ export function computeVerdict(
  */
 const MIN_FACE_AREA = 14_400; // px² (≈120×120); below → likely too far. Heuristic.
 
-export function deriveGuidance(frame: LiveFrame): string | null {
+export function deriveGuidance(frame: CaptureFrame): string | null {
   if (frame.numberOfFaces < 1) return "Step in front of the camera";
   const bb = frame.boundingBox;
   if (bb && bb.width * bb.height < MIN_FACE_AREA) return "Move a little closer";
@@ -108,7 +109,7 @@ export function positioningGuidance(fb: PositioningFeedback): string[] {
  * (derived=false); otherwise falls back to the bbox/faceStatus heuristic
  * (derived=true). Real "ok" + not-captured → "Hold still"; real "ok" + captured → null.
  */
-export function guidanceFor(frame: LiveFrame): { text: string | null; derived: boolean } {
+export function guidanceFor(frame: CaptureFrame): { text: string | null; derived: boolean } {
   const fb = frame.positioningFeedback;
   if (fb && frame.numberOfFaces >= 1) {
     if (!fb.ok) {
@@ -118,4 +119,34 @@ export function guidanceFor(frame: LiveFrame): { text: string | null; derived: b
     return { text: frame.isCaptured ? null : "Hold still", derived: false };
   }
   return { text: deriveGuidance(frame), derived: true };
+}
+
+/**
+ * PER-FRAME guidance from the live snapshot (Lane 1), so guidance tracks the subject
+ * in real time instead of at capture cadence. When there IS live data the snapshot is
+ * AUTHORITATIVE — including the "well-positioned" case, where it returns text:null to
+ * clear any stale correction left over from the last finalized capture (otherwise an
+ * old "Turn right" lingers after the live snapshot reports positioning is good).
+ *
+ * Returns null ONLY when there is no live signal to act on (no snapshot, or a face is
+ * present but the device gave no positioning bits) — then the caller falls back to the
+ * capture-frame guidance, which alone knows the locked/acquiring nuance (isCaptured
+ * lives on the finalized CaptureFrame, not the live snapshot).
+ */
+export function guidanceForSnapshot(
+  snap: LiveSnapshotState | null,
+): { text: string | null; derived: boolean } | null {
+  if (!snap) return null;
+  if (snap.numberOfFaces < 1) {
+    return { text: "Step in front of the camera", derived: true };
+  }
+  const fb = snap.positioningFeedback;
+  if (fb) {
+    if (!fb.ok) {
+      const parts = positioningGuidance(fb);
+      return { text: parts.length ? parts.join(" · ") : "Hold still", derived: false };
+    }
+    return { text: null, derived: false }; // well-positioned → clear any stale correction
+  }
+  return null; // face present but no live positioning → fall back to capture guidance
 }

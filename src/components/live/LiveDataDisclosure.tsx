@@ -1,7 +1,7 @@
-import type { LiveFrame } from "../../live/types.ts";
+import type { CaptureFrame } from "../../live/types.ts";
 
 /** Read-only data surface: bbox, landmarks, raw positioning bits (no overlay). */
-export function LiveDataDisclosure({ frame }: { frame: LiveFrame | null }) {
+export function LiveDataDisclosure({ frame }: { frame: CaptureFrame | null }) {
   if (!frame) return null;
   const bb = frame.boundingBox;
   const fb = frame.positioningFeedback;

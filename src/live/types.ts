@@ -10,7 +10,7 @@ export interface LiveThresholds {
   minimalMatchScore: number;
 }
 
-export interface LiveFrame {
+export interface CaptureFrame {
   /** The detected-face image from the capture result (v1 "feed"). */
   image: { datatype: string; data: string } | null;
   quality: number;
@@ -28,6 +28,8 @@ export interface LiveFrame {
   positioningFeedback: PositioningFeedback | null;
   /** Source-frame landmark points (data only, not drawn in v1). */
   landmarks: Landmark[] | null;
+  /** The finalized live template (base64), so a reference can be held without a new op. */
+  liveTemplate: string | null;
 }
 
 export type VerdictState = "searching" | "acquiring" | "accept" | "reject";
@@ -44,4 +46,14 @@ export interface BarView {
   pass: boolean;
   /** ok = passing comfortably, warn = passing within margin, bad = failing. */
   tone: "ok" | "warn" | "bad";
+}
+
+/** Per-frame live metadata (Lane 1) — drives overlay/guidance/live-quality/glow.
+ *  Mirrors LiveSnapshot but with nulls instead of optionals for stable rendering. */
+export interface LiveSnapshotState {
+  numberOfFaces: number;
+  quality: number | null;
+  boundingBox: { x: number; y: number; width: number; height: number } | null;
+  landmarks: { type?: string; x: number; y: number }[] | null;
+  positioningFeedback: PositioningFeedback | null;
 }

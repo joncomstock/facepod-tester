@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type NormalizedError, type SessionStatus } from "../../api.ts";
 import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
-import { computeVerdict, guidanceFor } from "../../live/logic.ts";
-import type { LiveFrame, LiveThresholds } from "../../live/types.ts";
+import { useFramePoll } from "../../live/useFramePoll.ts";
+import { overlayDecision } from "../../live/overlayDisplay.ts";
+import { computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
+import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
+import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
 import { LiveDataDisclosure } from "./LiveDataDisclosure.tsx";
+import { DerivedHints } from "./DerivedHints.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -27,27 +31,47 @@ interface Props {
 export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
-  const [frame, setFrame] = useState<LiveFrame | null>(null);
+  const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
+  const [lastTemplate, setLastTemplate] = useState<string | null>(null);
+  const [brightness, setBrightness] = useState<number | null>(null);
+  const [frameNat, setFrameNat] = useState<{ w: number; h: number } | null>(null);
+  const [feedEpoch, setFeedEpoch] = useState(0); // bump to re-arm the frame poll
+  const frameTickRef = useRef(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const hasReference = refTemplate !== null;
   const verdict = frame
     ? computeVerdict(frame, thresholds, hasReference)
     : { state: "searching" as const, reasons: [] };
-  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
-  const guidance = g.text;
-  const guidanceDerived = g.derived;
 
-  useWatchLoop({
+  const { stopAndDrain: stopWatch } = useWatchLoop({
     active: watching && scene === "live",
     refTemplate,
     thresholds,
-    onFrame: setFrame,
+    onFrame: (f) => { setFrame(f); if (f.liveTemplate) setLastTemplate(f.liveTemplate); },
     onError: (e) => {
       setWatching(false);
       onError(e);
     },
   });
+
+  const { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: stopFrames } = useFramePoll({
+    active: scene === "live",
+    sessionGeneration: status?.sessionGeneration ?? 0,
+    onError,
+    restartKey: feedEpoch,
+  });
+  const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
+
+  // Positioning guidance prefers the PER-FRAME live snapshot (Lane 1); a live
+  // corrective ("Turn right", "Move closer") updates in real time. Only when the
+  // live snapshot has no correction do we fall back to the capture-frame guidance,
+  // which alone knows the locked/acquiring nuance (isCaptured is capture-cadence).
+  const live = guidanceForSnapshot(liveSnapshot);
+  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
+  const guidance = live ? live.text : g.text;
+  const guidanceDerived = live ? live.derived : g.derived;
 
   const refreshParams = useCallback(async () => {
     setWatching(false);          // free the device lock
@@ -81,22 +105,59 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [onError]);
 
   const endSession = useCallback(async () => {
-    try {
-      await api.disconnect();
-    } catch (e) {
-      onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
-    }
+    const wasWatching = watching;
     setWatching(false);
-    setFrame(null);
+    await stopFrames();   // 1. stop Lane 1, await in-flight frame request
+    await stopWatch();    // 2. abort + drain Lane 2 (capture/match)
+    try {
+      await api.disconnect(); // 3. server flips #closing, drains frame-reads, disposes
+    } catch (e) {
+      // The server intentionally RETAINS the live device when a lane can't drain (a
+      // wedged op/read) — it did not disconnect. Surface the error, don't falsely show
+      // idle, and RESUME the lanes so the retained session isn't left frozen: restore
+      // the prior watch state and re-arm the frame poll (scene stays "live", so the
+      // poll won't re-arm on its own without bumping restartKey).
+      onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
+      onSessionChange?.(); // refresh the status strip — it still reads connected
+      setWatching(wasWatching);
+      setFeedEpoch((n) => n + 1);
+      return;
+    }
+    setFrame(null);       // 4. clear client state (only after a real disconnect)
     setRefTemplate(null);
+    setLastTemplate(null);
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
-  }, [onError, onSessionChange, onClearParams]);
+  }, [watching, onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
 
   useEffect(() => {
     if (!watching) setFrame(null);
   }, [watching]);
+
+  useEffect(() => {
+    if (!videoFrame) return;
+    if (frameTickRef.current++ % 8 !== 0) return; // throttle: ~1 of 8 frames
+    const img = new Image();
+    img.onload = () => {
+      const cv = (canvasRef.current ??= document.createElement("canvas"));
+      cv.width = 32; cv.height = 57; // tiny, ~9:16; just for a luminance estimate
+      const ctx = cv.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      setBrightness(meanLuminance(ctx.getImageData(0, 0, cv.width, cv.height).data));
+    };
+    img.src = `data:image/${videoFrame.datatype === "jpg" ? "jpeg" : videoFrame.datatype};base64,${videoFrame.data}`;
+  }, [videoFrame]);
+
+  const distance = distanceHint(
+    liveSnapshot?.boundingBox ?? null,
+    frameNat ? frameNat.w * frameNat.h : 0,
+  );
+
+  const useCurrentFace = useCallback(() => {
+    if (lastTemplate) setRefTemplate(lastTemplate);
+  }, [lastTemplate]);
 
   const pickReference = useCallback(async (file: File) => {
     const read = await readImageFile(file);
@@ -151,8 +212,9 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell">
-      <Feed frame={frame} verdict={verdict} guidance={guidance} />
-      <Telemetry frame={frame} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
+      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} onNaturalSize={setFrameNat} />
+      <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
+      <DerivedHints brightness={brightness} distance={distance} />
       <ActionDock
         watching={watching}
         hasReference={hasReference}
@@ -160,6 +222,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         onPickReference={pickReference}
         onClearReference={() => setRefTemplate(null)}
         onEnd={endSession}
+        onUseCurrentFace={useCurrentFace}
+        canUseCurrentFace={lastTemplate !== null}
       />
       {deviceParams
         ? (

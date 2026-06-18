@@ -57,3 +57,20 @@ Deno.test("gate: allows GET with header (no content-type needed)", () => {
     null,
   );
 });
+
+Deno.test("gate: video-frame GET needs only the custom header (no JSON CT)", () => {
+  // Missing header → rejected.
+  assertEquals(
+    checkRequestGate({ method: "GET", path: "/api/video-frame" })?.httpStatus,
+    403,
+  );
+  // Header present, no content-type → allowed (GET needs no JSON CT).
+  assertEquals(
+    checkRequestGate({
+      method: "GET",
+      path: "/api/video-frame",
+      testerHeader: "1",
+    }),
+    null,
+  );
+});
