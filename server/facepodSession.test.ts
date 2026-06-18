@@ -397,7 +397,7 @@ Deno.test("teardown refuses to dispose while a frame read is still in flight (se
   assertEquals(s.connected, false);
 });
 
-Deno.test("readFrame records a real read failure in lastError (not a silent 'no frame')", async () => {
+Deno.test("readFrame propagates a real read failure (records lastError + throws, not a silent 'no frame')", async () => {
   const client: FaceModuleClient = {
     getInfo: () =>
       Promise.resolve({
@@ -433,8 +433,9 @@ Deno.test("readFrame records a real read failure in lastError (not a silent 'no 
   await s.connect({ mock: false, mockScenario: "good" });
   await s.openCamera();
 
-  const r = await s.readFrame(-1n);
-  assertEquals(r.frame, null); // best-effort lane still returns null (keeps polling)
+  // A real read failure must PROPAGATE (→ error response → UI onError), not be masked
+  // as a silent frame:null. It is also recorded for GET /api/status.
+  await assertRejects(() => s.readFrame(-1n), Error, "frame read boom");
   const err = s.status().lastError;
   assert(err !== null, "a thrown read error must be recorded, not silently masked");
   assertEquals(err?.message, "frame read boom");

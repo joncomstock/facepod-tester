@@ -266,12 +266,14 @@ export class FacePodSession {
         sessionGeneration: this.#sessionGeneration,
       };
     } catch (err) {
-      // The lib returns null for normal backpressure (no throw) and THROWS on a real
-      // read failure. Record it so GET /api/status surfaces it (lastError) instead of
-      // silently masking a hardware error as "no frame". Still return frame:null so the
-      // best-effort feed lane keeps polling rather than tearing the feed down.
+      // The lib returns null for normal backpressure (no throw) and THROWS only on a
+      // real read failure. Record it AND propagate — the route maps the throw to an
+      // error response so the operator's UI surfaces it via useFramePoll's onError
+      // (mirroring useWatchLoop). Returning frame:null here would mask a hardware fault
+      // as a silently-frozen feed. (Backpressure resolves to null in the try above and
+      // never reaches this catch, so it keeps polling normally.)
       this.#lastError = normalizeError(err);
-      return { frame: null, ...base };
+      throw err;
     } finally {
       this.#inFlightFrames.delete(p);
     }
