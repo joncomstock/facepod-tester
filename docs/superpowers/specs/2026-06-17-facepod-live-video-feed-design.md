@@ -106,7 +106,7 @@ Acceptance for Task 0: `deno check` and `deno test` green again.
 
 ### 3.2 `facepodSession.ts`
 
-- **`getVideoFrame(lastSeq?: bigint)`** — **bypasses `#track`** (pure read, mirroring the lib). Guarded by a **frame-gate**: a `#closing` flag + an in-flight frame-read counter. Returns `null` immediately if `#closing`; otherwise increments the counter, calls `device.getVideoFrame`, decrements in `finally`.
+- **`getVideoFrame(lastSeq?: bigint)`** — **bypasses `#track`** (pure read; the *tester's* `#track`, mirroring how the lib client bypasses its own op-lock). Guarded by a **frame-gate**: a `#closing` flag + an in-flight frame-read counter. The **check-and-increment must be synchronous** — read `#closing` and increment the counter in the same synchronous step *before any `await`*, exactly as `#track` does its guard-and-set (`facepodSession.ts:154-156`) — otherwise a frame-read can pass the `#closing` check and then increment after `disconnect()` has already observed a drained counter (a TOCTOU window). Returns `null` immediately if `#closing`; otherwise (counter already incremented) `await device.getVideoFrame`, decrement in `finally`.
 - **`latestSnapshot` buffer** holding `{ snapshot: LiveSnapshot, captureId: number, monotonicAtWrite: number }` where `monotonicAtWrite = performance.now()`. Plus `#captureId` and `#sessionGeneration` counters.
 - **`capture()` / `captureAndMatch()`** forward an `onIntermediate` callback that writes the buffer tagged with the current `#captureId`. The buffer is **cleared at op start** (so a prior op's snapshot never lingers) and `#captureId` is incremented at op start.
 - **`#sessionGeneration`** increments on every successful `connect()`; reset clears `latestSnapshot`.
@@ -148,11 +148,15 @@ The overlay is **only displayed alongside a fresh frame.** When the response has
 
 ### 5.3 Stale-overlay fade policy
 
-Driven by server `snapshotAgeMs`: retain the last box, **begin fade at ≈300 ms, remove at ≈600 ms.** A snapshot whose `captureId` ≠ the current op or whose `sessionGeneration` ≠ the current session is discarded immediately, before age is considered.
+Driven by server `snapshotAgeMs`. **The fade window must exceed the inter-capture-op gap**, or the overlay will flicker — fade out and pop back — once per capture cycle. The watch loop runs ~1.5 s ops (`useWatchLoop.ts:39`, `timeoutMs: 1500`) with a ~150 ms gap between them, and intermediate snapshots only stream *while an op is in flight*; between ops `snapshotAgeMs` grows for several hundred ms even on a perfectly healthy session. So the earlier 300/600 ms values are wrong (they sit inside a normal gap).
+
+Policy: hold the box steady through the normal inter-op gap; **begin fade only after ~750 ms of no fresh snapshot, remove at ~1500 ms** (≈ one op cadence) — values defined as named constants and tuned on-device, with the invariant `fadeStart > typical inter-op gap`. A snapshot whose `captureId` ≠ the current op or whose `sessionGeneration` ≠ the current session is discarded **immediately**, before age is considered (a stale-op or stale-session box is never shown, regardless of the fade window).
 
 ### 5.4 `Feed.tsx`
 
-The full frame becomes the feed image (`videoFrame` already preferred over `frame.image`). Replace the raw-px `.bbox` with the §4 percentage overlay inside the 9:16 media box; draw the bbox + 5 landmark dots; apply the §5.3 fade.
+The full frame becomes the feed image (`videoFrame` already preferred over `frame.image`). Replace the raw-px `.bbox` with the §4 percentage overlay inside the 9:16 media box; draw the bbox + 5 landmark dots; apply the §5.3 fade. **Drop or drastically shorten the existing `.bbox` `transition: ... .5s` (`styles.css:580`)** — at a per-frame (~8 fps / 125 ms) overlay a 500 ms position transition lags and smears the box behind the face; a position transition must be ≤ the frame interval (or removed).
+
+**Layout note:** the feed currently lives in a flex column (`.feed { flex: 1; min-height: 420px }`, `styles.css:558`) above the verdict chip + telemetry bars. A 9:16 box at full 1280 height is 720 px wide (fits 800), but stacked with the HUD elements it must be height-constrained so it does not overflow the 1280 viewport; confirm the box sizes to the *available* feed region, not the full height.
 
 ### 5.5 `Telemetry.tsx`
 
@@ -162,7 +166,8 @@ Quality bar ← `LiveSnapshotState` (live). Liveness / match bars + verdict chip
 
 Today `useWatchLoop` only flips a boolean and cannot await an in-flight capture; browser fetches carry no abort signal. The new design defines, for **both** hooks:
 
-- An **`AbortController`** per hook; its `signal` is passed to `fetch`. The capture endpoint reads the **request abort signal** (`c.req.raw.signal`) and propagates it into `captureAndProcess(opts, signal)` — so a client abort tears down the server-side device op too.
+- An **`AbortController`** per hook; its `signal` is passed to `fetch`. The capture endpoint **opportunistically** reads the **request abort signal** (`c.req.raw.signal`) and propagates it into `captureAndProcess(opts, signal)` — the FFI client honors it (`hidFaceFfi.ts:475` checks `signal?.aborted` and calls `HFStopOperation` in `finally`), so when the abort reaches the server it tears down the device op too.
+- **The request-signal path is best-effort, not the authoritative release.** Through the Vite dev proxy a client `abort()` may not surface to the Deno backend as a connection close, so the server may not see it. Authoritative teardown is the **server-side `#closing` flag + frame-read drain on `disconnect()`** (step 3 below), which holds regardless of whether the abort propagated.
 - Each hook retains its **in-flight request promise** in a ref.
 - **`stopAndDrain(): Promise<void>`** = set `active = false` → `abortController.abort()` → `await` the retained in-flight promise (swallowing `AbortError`).
 
@@ -170,7 +175,7 @@ Today `useWatchLoop` only flips a boolean and cannot await an in-flight capture;
 
 1. `useFramePoll.stopAndDrain()` (stop frame polling, await in-flight frame request)
 2. `useWatchLoop.stopAndDrain()` (abort + drain capture/match)
-3. `POST /api/disconnect` (server flips `#closing`, drains frame-reads, disposes)
+3. `POST /api/disconnect` (server flips `#closing`, drains in-flight frame-reads, disposes) — **the authoritative release**
 4. clear `LiveSnapshotState`, `CaptureFrame`, reference template, session state.
 
 ### 5.7 Reference / match% (separate task)
