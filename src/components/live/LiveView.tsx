@@ -5,7 +5,7 @@ import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision } from "../../live/overlayDisplay.ts";
-import { computeVerdict, guidanceFor } from "../../live/logic.ts";
+import { computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { Feed } from "./Feed.tsx";
@@ -43,9 +43,6 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const verdict = frame
     ? computeVerdict(frame, thresholds, hasReference)
     : { state: "searching" as const, reasons: [] };
-  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
-  const guidance = g.text;
-  const guidanceDerived = g.derived;
 
   const { stopAndDrain: stopWatch } = useWatchLoop({
     active: watching && scene === "live",
@@ -64,6 +61,15 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     onError,
   });
   const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
+
+  // Positioning guidance prefers the PER-FRAME live snapshot (Lane 1); a live
+  // corrective ("Turn right", "Move closer") updates in real time. Only when the
+  // live snapshot has no correction do we fall back to the capture-frame guidance,
+  // which alone knows the locked/acquiring nuance (isCaptured is capture-cadence).
+  const liveCorrection = guidanceForSnapshot(liveSnapshot);
+  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
+  const guidance = liveCorrection ?? g.text;
+  const guidanceDerived = liveCorrection !== null ? false : g.derived;
 
   const refreshParams = useCallback(async () => {
     setWatching(false);          // free the device lock

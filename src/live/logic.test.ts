@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, guidanceFor, positioningGuidance, toCaptureFrame } from "./logic.ts";
-import type { CaptureFrame, LiveThresholds } from "./types.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame } from "./logic.ts";
+import type { CaptureFrame, LiveSnapshotState, LiveThresholds } from "./types.ts";
+
+const snap = (over: Partial<LiveSnapshotState>): LiveSnapshotState => ({
+  numberOfFaces: 1,
+  quality: 0.8,
+  boundingBox: null,
+  landmarks: null,
+  positioningFeedback: null,
+  ...over,
+});
+
+describe("guidanceForSnapshot (per-frame, Lane 1)", () => {
+  it("returns the live corrective string when positioning is not ok", () => {
+    expect(guidanceForSnapshot(snap({
+      positioningFeedback: { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 },
+    }))).toBe("Turn right");
+  });
+  it("returns null when well-positioned (defers to capture-frame guidance)", () => {
+    expect(guidanceForSnapshot(snap({
+      positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
+    }))).toBeNull();
+  });
+  it("returns null with no snapshot or no face", () => {
+    expect(guidanceForSnapshot(null)).toBeNull();
+    expect(guidanceForSnapshot(snap({ numberOfFaces: 0 }))).toBeNull();
+  });
+});
 
 const baseCapture: CaptureResult = {
   quality: 0.92,

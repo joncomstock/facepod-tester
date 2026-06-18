@@ -1,6 +1,6 @@
 /** Pure Live-HUD logic — no React/DOM, fully unit-tested. */
 import type { CaptureResult, MatchResult, PositioningFeedback } from "../api.ts";
-import type { BarView, CaptureFrame, LiveThresholds, Verdict } from "./types.ts";
+import type { BarView, CaptureFrame, LiveSnapshotState, LiveThresholds, Verdict } from "./types.ts";
 
 /** Fold a capture result (+ optional match) into the HUD's frame shape. */
 export function toCaptureFrame(
@@ -119,4 +119,22 @@ export function guidanceFor(frame: CaptureFrame): { text: string | null; derived
     return { text: frame.isCaptured ? null : "Hold still", derived: false };
   }
   return { text: deriveGuidance(frame), derived: true };
+}
+
+/**
+ * PER-FRAME corrective guidance from the live snapshot (Lane 1), so guidance tracks
+ * the subject in real time instead of at capture cadence. Returns a corrective
+ * string only while the device reports the face is NOT well-positioned; when it is
+ * "ok" (or there's no live positioning) it returns null so the caller falls back to
+ * the capture-frame guidance, which alone knows the locked/acquiring distinction
+ * (isCaptured lives on the finalized CaptureFrame, not the live snapshot).
+ */
+export function guidanceForSnapshot(snap: LiveSnapshotState | null): string | null {
+  if (!snap || snap.numberOfFaces < 1) return null;
+  const fb = snap.positioningFeedback;
+  if (fb && !fb.ok) {
+    const parts = positioningGuidance(fb);
+    return parts.length ? parts.join(" · ") : "Hold still";
+  }
+  return null;
 }
