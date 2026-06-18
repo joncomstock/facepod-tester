@@ -113,6 +113,7 @@ export class FacePodSession {
   #closing = false;
   #framesInFlight = 0;
   #inFlightFrame: Promise<unknown> | null = null;
+  #inFlightOp: Promise<unknown> | null = null;
   #captureId = 0;
   #sessionGeneration = 0;
   #latestSnapshot:
@@ -178,8 +179,18 @@ export class FacePodSession {
   async #track<T>(fn: () => Promise<T>): Promise<T> {
     if (this.#busy) busy();
     this.#busy = true;
+    // Wrap fn() so a synchronous throw is promoted to a rejected promise;
+    // this guarantees the finally block always runs and #busy is always cleared.
+    const p: Promise<T> = new Promise((res, rej) => {
+      try {
+        fn().then(res, rej);
+      } catch (err) {
+        rej(err);
+      }
+    });
+    this.#inFlightOp = p;
     try {
-      const result = await fn();
+      const result = await p;
       this.#lastError = null;
       return result;
     } catch (err) {
@@ -187,6 +198,7 @@ export class FacePodSession {
       throw err;
     } finally {
       this.#busy = false;
+      if (this.#inFlightOp === p) this.#inFlightOp = null;
     }
   }
 
@@ -271,9 +283,11 @@ export class FacePodSession {
     });
   }
 
-  /** Close camera (if open) and dispose the lifecycle. Rejects if busy. */
+  /** Close camera (if open) and dispose the lifecycle. Drains both lanes first
+   *  so a still-settling capture never turns End-session into a BusyError. */
   async disconnect(): Promise<void> {
     await this.#quiesceFrameLane();
+    await this.#quiesceOpLane();
     await this.#track(() => this.#teardown());
   }
 
@@ -316,6 +330,22 @@ export class FacePodSession {
       inflight.catch(() => {}),
       new Promise((r) => setTimeout(r, 500)),
     ]);
+  }
+
+  /**
+   * Wait for an in-flight Lane-2 op (capture/match) to settle before teardown,
+   * so disconnect()/connect() don't reject with BusyError when a capture is still
+   * draining server-side. Bounded so a wedged op can't wedge teardown.
+   */
+  async #quiesceOpLane(): Promise<void> {
+    const inflight = this.#inFlightOp;
+    if (!inflight) return;
+    let tid: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((r) => {
+      tid = setTimeout(r, 2500);
+    });
+    await Promise.race([inflight.catch(() => {}), timeout]);
+    clearTimeout(tid);
   }
 
   /** Best-effort dispose of the current lifecycle and clear session state. */

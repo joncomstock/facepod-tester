@@ -245,3 +245,14 @@ Deno.test("readFrame returns null frame once closing (teardown gate)", async () 
   const r = await s.readFrame(-1n);
   assertEquals(r.frame, null); // not connected / closing → no frame, no throw
 });
+
+Deno.test("disconnect drains an in-flight capture instead of throwing BusyError", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  s.setMockScenario("approach"); // mock capture streams over ~90ms, holding #busy
+  const capP = s.capture({ minimalQuality: 0.7 }); // in flight, holds the busy lock
+  await s.disconnect(); // must NOT throw BusyError — drains the op first, then tears down
+  assertEquals(s.connected, false);
+  await capP.catch(() => {}); // let the capture settle
+});
