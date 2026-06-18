@@ -122,19 +122,31 @@ export function guidanceFor(frame: CaptureFrame): { text: string | null; derived
 }
 
 /**
- * PER-FRAME corrective guidance from the live snapshot (Lane 1), so guidance tracks
- * the subject in real time instead of at capture cadence. Returns a corrective
- * string only while the device reports the face is NOT well-positioned; when it is
- * "ok" (or there's no live positioning) it returns null so the caller falls back to
- * the capture-frame guidance, which alone knows the locked/acquiring distinction
- * (isCaptured lives on the finalized CaptureFrame, not the live snapshot).
+ * PER-FRAME guidance from the live snapshot (Lane 1), so guidance tracks the subject
+ * in real time instead of at capture cadence. When there IS live data the snapshot is
+ * AUTHORITATIVE — including the "well-positioned" case, where it returns text:null to
+ * clear any stale correction left over from the last finalized capture (otherwise an
+ * old "Turn right" lingers after the live snapshot reports positioning is good).
+ *
+ * Returns null ONLY when there is no live signal to act on (no snapshot, or a face is
+ * present but the device gave no positioning bits) — then the caller falls back to the
+ * capture-frame guidance, which alone knows the locked/acquiring nuance (isCaptured
+ * lives on the finalized CaptureFrame, not the live snapshot).
  */
-export function guidanceForSnapshot(snap: LiveSnapshotState | null): string | null {
-  if (!snap || snap.numberOfFaces < 1) return null;
-  const fb = snap.positioningFeedback;
-  if (fb && !fb.ok) {
-    const parts = positioningGuidance(fb);
-    return parts.length ? parts.join(" · ") : "Hold still";
+export function guidanceForSnapshot(
+  snap: LiveSnapshotState | null,
+): { text: string | null; derived: boolean } | null {
+  if (!snap) return null;
+  if (snap.numberOfFaces < 1) {
+    return { text: "Step in front of the camera", derived: true };
   }
-  return null;
+  const fb = snap.positioningFeedback;
+  if (fb) {
+    if (!fb.ok) {
+      const parts = positioningGuidance(fb);
+      return { text: parts.length ? parts.join(" · ") : "Hold still", derived: false };
+    }
+    return { text: null, derived: false }; // well-positioned → clear any stale correction
+  }
+  return null; // face present but no live positioning → fall back to capture guidance
 }

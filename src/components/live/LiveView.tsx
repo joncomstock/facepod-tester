@@ -66,10 +66,10 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   // corrective ("Turn right", "Move closer") updates in real time. Only when the
   // live snapshot has no correction do we fall back to the capture-frame guidance,
   // which alone knows the locked/acquiring nuance (isCaptured is capture-cadence).
-  const liveCorrection = guidanceForSnapshot(liveSnapshot);
+  const live = guidanceForSnapshot(liveSnapshot);
   const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
-  const guidance = liveCorrection ?? g.text;
-  const guidanceDerived = liveCorrection !== null ? false : g.derived;
+  const guidance = live ? live.text : g.text;
+  const guidanceDerived = live ? live.derived : g.derived;
 
   const refreshParams = useCallback(async () => {
     setWatching(false);          // free the device lock
@@ -109,9 +109,14 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     try {
       await api.disconnect(); // 3. server flips #closing, drains frame-reads, disposes
     } catch (e) {
+      // The server intentionally RETAINS the live device when its op-drain times out
+      // (a wedged capture) — it did not disconnect. Surface the error and do NOT
+      // falsely show idle; keep the session as-is so the operator can retry End.
       onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
+      onSessionChange?.(); // refresh the status strip — it still reads connected
+      return;
     }
-    setFrame(null);       // 4. clear client state
+    setFrame(null);       // 4. clear client state (only after a real disconnect)
     setRefTemplate(null);
     setLastTemplate(null);
     setScene("idle");

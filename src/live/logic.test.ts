@@ -16,16 +16,22 @@ describe("guidanceForSnapshot (per-frame, Lane 1)", () => {
   it("returns the live corrective string when positioning is not ok", () => {
     expect(guidanceForSnapshot(snap({
       positioningFeedback: { raw: 4, ok: false, flags: ["TURN_RIGHT"], unknownBits: 0 },
-    }))).toBe("Turn right");
+    }))).toEqual({ text: "Turn right", derived: false });
   });
-  it("returns null when well-positioned (defers to capture-frame guidance)", () => {
+  it("clears any stale correction (text:null) when live positioning is ok", () => {
+    // Authoritative: must NOT fall back to a stale capture-frame "Turn right".
     expect(guidanceForSnapshot(snap({
       positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
-    }))).toBeNull();
+    }))).toEqual({ text: null, derived: false });
   });
-  it("returns null with no snapshot or no face", () => {
+  it("is authoritative for no-face (does not fall back to a stale correction)", () => {
+    expect(guidanceForSnapshot(snap({ numberOfFaces: 0 })))
+      .toEqual({ text: "Step in front of the camera", derived: true });
+  });
+  it("returns null only when there is no live signal to act on", () => {
     expect(guidanceForSnapshot(null)).toBeNull();
-    expect(guidanceForSnapshot(snap({ numberOfFaces: 0 }))).toBeNull();
+    // Face present but the device gave no positioning bits → fall back to capture.
+    expect(guidanceForSnapshot(snap({ numberOfFaces: 1, positioningFeedback: null }))).toBeNull();
   });
 });
 
