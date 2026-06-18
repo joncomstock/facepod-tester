@@ -127,6 +127,7 @@ Deno.test("failed connect leaves no live session and disposes the client", async
     },
     getCameraList: () => Promise.resolve([]),
     getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () => Promise.resolve(null),
     openCameraContext: () => Promise.resolve(),
     closeCameraContext: () => Promise.resolve(),
     captureAndProcess: () =>

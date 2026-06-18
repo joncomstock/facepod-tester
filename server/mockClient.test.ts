@@ -4,7 +4,7 @@ import {
   isMockScenario,
   type MockScenario,
 } from "./mockClient.ts";
-import type { FaceImage } from "@eai/hid/facepod";
+import type { FaceImage, LiveSnapshot } from "@eai/hid/facepod";
 
 const REF_IMAGE: FaceImage = {
   modality: "face",
@@ -141,4 +141,43 @@ Deno.test("getParameters returns realistic params distinct from UI defaults", as
   assertEquals(p.encodingJpegQuality, 90);
   // all 34 fields populated (no undefined).
   assertEquals(Object.values(p).some((v) => v === undefined), false);
+});
+
+Deno.test("getVideoFrame: latest advances; behind-cursor walks; caught-up backpressures", async () => {
+  const c = client("good"); // a FRESH client → its own #frameSeq starts at 0
+  const f1 = await c.getVideoFrame(-1n); // "latest" advances the simulated camera
+  if (!f1) throw new Error("expected a frame for lastSeq=-1");
+  assertEquals(f1.format, "png");
+  assert(f1.bytes.length > 0, "frame must carry bytes");
+  // A second "latest" poll advances again → strictly newer seq (monotonic).
+  const f2 = await c.getVideoFrame(-1n);
+  if (!f2) throw new Error("expected a newer frame");
+  assert(f2.seq > f1.seq, `seq must advance: ${f1.seq} -> ${f2.seq}`);
+  // A cursor AT the newest → null (backpressure: nothing newer than this yet).
+  assertEquals(await c.getVideoFrame(f2.seq), null);
+  // A cursor BEHIND the newest → the next newer frame (strict "newer than" filter).
+  const f3 = await c.getVideoFrame(f1.seq);
+  if (!f3) throw new Error("expected a next-newer frame for a behind cursor");
+  assert(f3.seq > f1.seq, "a behind cursor must yield a newer frame");
+});
+
+Deno.test("captureAndProcess: streams several intermediate snapshots", async () => {
+  const c = client("approach");
+  const snaps: LiveSnapshot[] = [];
+  const r = await c.captureAndProcess(
+    { minimalQuality: 0.7, maximalSpoofScore: 0.5 },
+    undefined,
+    (s) => { snaps.push(s); },
+  );
+  assert(snaps.length >= 3, `expected >=3 intermediate snapshots, got ${snaps.length}`);
+  // Intermediate snapshots carry live overlay metadata, never a verdict signal.
+  assert(snaps.every((s) => typeof s.numberOfFaces === "number"), "numberOfFaces always present");
+  assert("liveness" in r, "final result carries liveness");
+});
+
+Deno.test("captureAndProcess: aborts promptly when signalled", async () => {
+  const c = client("approach");
+  const ac = new AbortController();
+  const p = c.captureAndProcess({ minimalQuality: 0.7 }, ac.signal, () => ac.abort());
+  await assertRejects(() => p, Error); // AbortError surfaces as a rejection
 });
