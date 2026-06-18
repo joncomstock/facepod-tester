@@ -3,6 +3,7 @@ import {
   type FaceModuleClient,
   FaceModuleLifecycle,
   FACEPOD_DEFAULTS,
+  type VideoFrame,
 } from "@eai/hid/facepod";
 import { FacePodSession, type LifecycleFactory } from "./facepodSession.ts";
 import type { ResolvedConfig } from "./config.ts";
@@ -11,6 +12,42 @@ const MOCK_CONFIG: ResolvedConfig = {
   mock: true,
   mockScenario: "good",
 };
+
+const frame = (seq: bigint): VideoFrame => ({
+  bytes: new Uint8Array([Number(seq)]),
+  format: "png",
+  seq,
+});
+
+/** Minimal client whose getVideoFrame hands back the supplied promises in order. */
+function frameClient(frames: Promise<VideoFrame>[]): FaceModuleClient {
+  let i = 0;
+  return {
+    getInfo: () =>
+      Promise.resolve({
+        deviceId: "SLOW-FRAME",
+        deviceRole: [],
+        deviceType: "device",
+        version: "0.0.0.0",
+      }),
+    getParameters: () => Promise.resolve({} as never),
+    getVideoFrame: () =>
+      i < frames.length ? frames[i++] : Promise.resolve(null),
+    getCameraList: () => Promise.resolve([]),
+    openCameraContext: () => Promise.resolve(),
+    closeCameraContext: () => Promise.resolve(),
+    captureAndProcess: () =>
+      Promise.resolve({
+        quality: 0,
+        numberOfFaces: 0,
+        liveness: { spoofScore: 0, passed: true },
+        isCaptured: false,
+      }),
+    processImage: () =>
+      Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
+    matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+  };
+}
 
 Deno.test("connect/disconnect happy path (mock) toggles connected state", async () => {
   const s = new FacePodSession();
@@ -257,6 +294,50 @@ Deno.test("connect over a live session drains an in-flight capture instead of th
   assertEquals(s.connected, true);
   await capP.catch(() => {});
   await s.disconnect();
+});
+
+Deno.test("teardown drains ALL concurrent frame reads, not just the latest", async () => {
+  // Read A (issued first) resolves LATE; read B (the latest) resolves immediately.
+  // The old single-#inFlightFrame drain awaited only B and would dispose while A's
+  // FFI read was still live. Disconnect must wait for A.
+  let resolveA!: () => void;
+  let aResolved = false;
+  const fA = new Promise<VideoFrame>((r) => {
+    resolveA = () => {
+      aResolved = true;
+      r(frame(1n));
+    };
+  });
+  const fB = Promise.resolve(frame(2n));
+  const factory: LifecycleFactory = () =>
+    Promise.resolve(
+      new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, frameClient([fA, fB])),
+    );
+  const s = new FacePodSession(factory);
+  await s.connect({ mock: false, mockScenario: "good" });
+  await s.openCamera();
+
+  const rA = s.readFrame(-1n); // slow read, in flight
+  const rB = s.readFrame(-1n); // latest read, resolves now
+  await rB;
+
+  let discDone = false;
+  const disc = s.disconnect().then(() => {
+    discDone = true;
+  });
+  await new Promise((r) => setTimeout(r, 50));
+  assertEquals(
+    discDone,
+    false,
+    "disconnect must still be draining the earlier read A",
+  );
+  assertEquals(aResolved, false);
+
+  resolveA();
+  await disc;
+  await rA;
+  assert(discDone && aResolved, "disconnect completes only after A settles");
+  assertEquals(s.connected, false);
 });
 
 Deno.test("disconnect drains an in-flight capture instead of throwing BusyError", async () => {

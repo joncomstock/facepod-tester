@@ -93,6 +93,14 @@ function busy(): never {
 }
 
 /**
+ * Backstop bound for draining an in-flight capture/match before teardown. Must be
+ * comfortably above the worst-case capture timeout + FFI/abort overhead (the watch
+ * loop bounds captures at 1.5s) so it never trips in normal operation — only a
+ * genuine native hang would reach it.
+ */
+const DRAIN_OP_MS = 6000;
+
+/**
  * Builds + returns a (not-yet-connected) FaceModuleLifecycle for a config.
  * Injectable so tests can substitute a lifecycle backed by a fake client.
  */
@@ -111,8 +119,10 @@ export class FacePodSession {
   #lastError: NormalizedError | null = null;
   #mockScenario: MockScenario = "good";
   #closing = false;
-  #framesInFlight = 0;
-  #inFlightFrame: Promise<unknown> | null = null;
+  // ALL in-flight frame reads (not just the latest) — overlapping reads are possible
+  // (e.g. two browser tabs polling the loopback server concurrently), and teardown
+  // must drain every one before dispose or an earlier FFI read outlives the DLL.
+  #inFlightFrames = new Set<Promise<unknown>>();
   #inFlightOp: Promise<unknown> | null = null;
   #captureId = 0;
   #sessionGeneration = 0;
@@ -226,9 +236,8 @@ export class FacePodSession {
     if (this.#closing || !this.#fp || !this.#fp.device.isOpen) {
       return { frame: null, ...base };
     }
-    this.#framesInFlight++; // synchronous: paired with the #closing check above
     const p = this.#fp.device.getVideoFrame(lastSeq);
-    this.#inFlightFrame = p;
+    this.#inFlightFrames.add(p); // synchronous: paired with the #closing check above
     try {
       const frame = await p;
       // Recompute snapshot/age AFTER the await so the buffer is current.
@@ -244,8 +253,7 @@ export class FacePodSession {
     } catch {
       return { frame: null, ...base };
     } finally {
-      this.#framesInFlight--;
-      if (this.#framesInFlight === 0) this.#inFlightFrame = null;
+      this.#inFlightFrames.delete(p);
     }
   }
 
@@ -291,7 +299,17 @@ export class FacePodSession {
   async disconnect(): Promise<void> {
     await this.#quiesceFrameLane();
     await this.#quiesceOpLane();
-    await this.#track(() => this.#teardown());
+    try {
+      await this.#track(() => this.#teardown());
+    } catch (err) {
+      // The op-lane drain is generously bounded (DRAIN_OP_MS, well above any real
+      // capture timeout), so reaching here means a genuinely wedged device op still
+      // held #busy. Don't force-dispose mid-op — the lib would throw and leak the
+      // camera context. Reopen the frame lane so the still-live session isn't left
+      // feed-dead, and surface the error so the operator can retry.
+      this.#closing = false;
+      throw err;
+    }
   }
 
   /**
@@ -320,34 +338,39 @@ export class FacePodSession {
 
   /**
    * Stop the frame lane before dispose: flip #closing (synchronously blocks new
-   * reads via readFrame's gate), then await the single in-flight read, BOUNDED by
-   * a timeout so a wedged device read can't wedge teardown. At most one read is in
-   * flight (clients poll sequentially + the synchronous gate), so awaiting the
-   * retained promise is sufficient.
+   * reads via readFrame's gate), then await EVERY in-flight read to settle (reads
+   * can overlap — two tabs polling the loopback server), BOUNDED by a timeout so a
+   * wedged device read can't wedge teardown.
    */
   async #quiesceFrameLane(): Promise<void> {
     this.#closing = true;
-    const inflight = this.#inFlightFrame;
-    if (!inflight) return;
+    const inflight = [...this.#inFlightFrames];
+    if (inflight.length === 0) return;
     let tid: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((r) => {
       tid = setTimeout(r, 500);
     });
-    await Promise.race([inflight.catch(() => {}), timeout]);
+    await Promise.race([
+      Promise.allSettled(inflight),
+      timeout,
+    ]);
     clearTimeout(tid);
   }
 
   /**
-   * Wait for an in-flight Lane-2 op (capture/match) to settle before teardown,
-   * so disconnect()/connect() don't reject with BusyError when a capture is still
-   * draining server-side. Bounded so a wedged op can't wedge teardown.
+   * Wait for an in-flight Lane-2 op (capture/match) to settle before teardown, so
+   * disconnect()/connect() don't reject with BusyError when a capture is still
+   * draining server-side. The op always settles within its own capture timeout
+   * (the watch loop bounds captures at 1.5s); the bound here is a generous backstop
+   * — DRAIN_OP_MS must exceed the worst-case capture timeout + FFI/abort overhead,
+   * so it never trips in normal operation, only on a genuine native hang.
    */
   async #quiesceOpLane(): Promise<void> {
     const inflight = this.#inFlightOp;
     if (!inflight) return;
     let tid: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((r) => {
-      tid = setTimeout(r, 2500);
+      tid = setTimeout(r, DRAIN_OP_MS);
     });
     await Promise.race([inflight.catch(() => {}), timeout]);
     clearTimeout(tid);
