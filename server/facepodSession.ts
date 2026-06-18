@@ -329,10 +329,12 @@ export class FacePodSession {
     this.#closing = true;
     const inflight = this.#inFlightFrame;
     if (!inflight) return;
-    await Promise.race([
-      inflight.catch(() => {}),
-      new Promise((r) => setTimeout(r, 500)),
-    ]);
+    let tid: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((r) => {
+      tid = setTimeout(r, 500);
+    });
+    await Promise.race([inflight.catch(() => {}), timeout]);
+    clearTimeout(tid);
   }
 
   /**
