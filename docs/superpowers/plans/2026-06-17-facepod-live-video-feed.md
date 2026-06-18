@@ -1279,9 +1279,43 @@ Also update `src/live/logic.test.ts` per Step 1 (already covered).
 
 - [ ] **Step 4: Update `useWatchLoop` — rename + AbortController + `stopAndDrain`**
 
-In `src/live/useWatchLoop.ts`: change the import/annotations `LiveFrame` → `CaptureFrame` and `toLiveFrame` → `toCaptureFrame`. **Also change the function's return-type annotation** from `export function useWatchLoop(opts: Options): void {` to `export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void> } {` — the hook now returns a value, so the `: void` annotation must change or `tsc` fails. Add an `AbortController` threaded into the fetch and a `stopAndDrain`. Replace the hook body's refs + return with:
+First, in `src/api.ts`, extend `post` (and the `capture`/`match` wrappers) to accept and forward an `AbortSignal` — `request` already spreads `...init` into `fetch`, so a top-level `signal` propagates:
 
 ```ts
+function post<T>(path: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: "POST", body: JSON.stringify(payload ?? {}), signal });
+}
+```
+
+and `capture: (req, signal?) => post<{ result: CaptureResult }>("/api/capture", req, signal)` (same for `match`).
+
+Then **replace `src/live/useWatchLoop.ts` in its entirety** with the version below. It renames `LiveFrame`→`CaptureFrame` and `toLiveFrame`→`toCaptureFrame`, changes the return type `: void` → `: { stopAndDrain: () => Promise<void> }`, retains the in-flight promise + threads an `AbortController` per iteration, adds the abort guard (`if (!runningRef.current) break;`) as the first line of the catch so a teardown abort exits quietly (the existing BusyError retry is preserved), and returns/cleans up via `stopAndDrain`:
+
+```ts
+import { useEffect, useRef } from "react";
+import { api, ApiError, type NormalizedError } from "../api.ts";
+import { toCaptureFrame } from "./logic.ts";
+import type { CaptureFrame, LiveThresholds } from "./types.ts";
+
+interface Options {
+  active: boolean;
+  refTemplate: string | null;
+  thresholds: LiveThresholds;
+  onFrame: (f: CaptureFrame) => void;
+  onError: (e: NormalizedError) => void;
+  intervalMs?: number;
+}
+
+/**
+ * Host-driven continuous watch (Lane 2): while `active`, repeatedly capture
+ * (serialized by the server's #track) and, when a reference is held, match the
+ * live template against it; each result is folded into a CaptureFrame for
+ * `onFrame`. stopAndDrain() aborts the in-flight op and awaits it — call it
+ * BEFORE POST /api/disconnect during teardown.
+ */
+export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void> } {
+  const ref = useRef(opts);
+  ref.current = opts;
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef<Promise<unknown> | null>(null);
@@ -1289,17 +1323,42 @@ In `src/live/useWatchLoop.ts`: change the import/annotations `LiveFrame` → `Ca
   const stopAndDrain = async () => {
     runningRef.current = false;
     abortRef.current?.abort();
-    try { await inFlightRef.current; } catch { /* abort/expected */ }
+    try { await inFlightRef.current; } catch { /* AbortError expected */ }
   };
   const stopRef = useRef(stopAndDrain);
   stopRef.current = stopAndDrain;
-```
 
-Wrap each `api.capture(...)` / `api.match(...)` call so its promise is retained (`inFlightRef.current = p; const cap = await p;`) and pass the abort signal via a new `signal` option on the api methods (add `signal?: AbortSignal` to `api.capture`/`api.match` in `src/api.ts`, forwarding it as `fetch`'s `signal`). Return `{ stopAndDrain: () => stopRef.current() }` from the hook, and in the effect cleanup call `void stopRef.current()` instead of only flipping the boolean.
+  useEffect(() => {
+    if (!opts.active) return;
+    runningRef.current = true;
 
-**Also add an abort guard to the existing `catch` block** (`useWatchLoop.ts:53`). Today the catch reports any error whose name `!== "BusyError"`; once `stopAndDrain` aborts the in-flight `api.capture`, that rejects with `AbortError` (name `"AbortError"`, ≠ `"BusyError"`), which would call `onError` and surface a spurious error on every End session. Add `if (!runningRef.current) break;` as the **first line of the catch** (mirroring `useFramePoll`'s catch), so a teardown-triggered abort exits the loop quietly instead of reporting an error:
-
-```ts
+    const loop = async () => {
+      while (runningRef.current && ref.current.active) {
+        const { thresholds, refTemplate, onFrame, onError } = ref.current;
+        const ac = new AbortController();
+        abortRef.current = ac;
+        try {
+          const capP = api.capture({
+            minimalQuality: thresholds.minimalQuality,
+            maximalSpoofScore: thresholds.maximalSpoofScore,
+            timeoutMs: 1500, // bound a live capture so the loop stays responsive
+          }, ac.signal);
+          inFlightRef.current = capP;
+          const cap = await capP;
+          let match = null;
+          const live = cap.result.template?.data ?? null;
+          if (refTemplate && live) {
+            const matchP = api.match({
+              template1: refTemplate,
+              template2: live,
+              minimalMatchScore: thresholds.minimalMatchScore,
+            }, ac.signal);
+            inFlightRef.current = matchP;
+            const m = await matchP;
+            match = m.result;
+          }
+          if (!runningRef.current) break;
+          onFrame(toCaptureFrame(cap.result, match));
         } catch (e) {
           if (!runningRef.current) break; // aborted by stopAndDrain — not an error
           const detail = e instanceof ApiError
@@ -1312,17 +1371,17 @@ Wrap each `api.capture(...)` / `api.match(...)` call so its promise is retained 
             break;
           }
         }
-```
+        await new Promise((r) => setTimeout(r, ref.current.intervalMs ?? 150));
+      }
+    };
+    void loop().catch(() => {});
 
-In `src/api.ts`, extend `request`/`post` to accept and pass a `signal`. Minimal change: add an optional 2nd arg to `post` and the capture/match wrappers:
+    return () => { void stopRef.current(); };
+  }, [opts.active]);
 
-```ts
-function post<T>(path: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
-  return request<T>(path, { method: "POST", body: JSON.stringify(payload ?? {}), signal });
+  return { stopAndDrain: () => stopRef.current() };
 }
 ```
-
-and `capture: (req, signal?) => post<{ result: CaptureResult }>("/api/capture", req, signal)` (same for `match`).
 
 - [ ] **Step 5: Telemetry split + live quality + teardown order in `LiveView`**
 
