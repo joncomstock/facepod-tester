@@ -3,6 +3,8 @@ import { api, ApiError, type NormalizedError, type SessionStatus } from "../../a
 import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
+import { useFramePoll } from "../../live/useFramePoll.ts";
+import { overlayDecision } from "../../live/overlayDisplay.ts";
 import { computeVerdict, guidanceFor } from "../../live/logic.ts";
 import type { LiveFrame, LiveThresholds } from "../../live/types.ts";
 import { Feed } from "./Feed.tsx";
@@ -49,6 +51,13 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     },
   });
 
+  const { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: stopFrames } = useFramePoll({
+    active: scene === "live",
+    sessionGeneration: status?.sessionGeneration ?? 0,
+    onError,
+  });
+  const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
+
   const refreshParams = useCallback(async () => {
     setWatching(false);          // free the device lock
     await onFetchParams?.();
@@ -81,6 +90,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [onError]);
 
   const endSession = useCallback(async () => {
+    await stopFrames();
     try {
       await api.disconnect();
     } catch (e) {
@@ -92,7 +102,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
-  }, [onError, onSessionChange, onClearParams]);
+  }, [onError, onSessionChange, onClearParams, stopFrames]);
 
   useEffect(() => {
     if (!watching) setFrame(null);
@@ -151,7 +161,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell">
-      <Feed frame={frame} verdict={verdict} guidance={guidance} />
+      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} />
       <Telemetry frame={frame} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
       <ActionDock
         watching={watching}

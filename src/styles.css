@@ -561,7 +561,16 @@ details.json pre {
   overflow: hidden; border: 1px solid hsl(var(--border));
   background: radial-gradient(420px 520px at 50% 42%, hsl(220 18% 22%), hsl(220 16% 9%) 70%, hsl(220 18% 6%));
 }
-.feed-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.92; }
+.feed-media { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+/* The frame's own aspect ratio (1080×1920 ≡ 9:16). Image fills it with no cover-crop,
+   so the overlay (sibling, percentage-positioned) registers 1:1 — no offset math. */
+.feed-media > .feed-img, .feed-media > .overlay {
+  position: absolute; height: 100%; aspect-ratio: 9 / 16; left: 50%; transform: translateX(-50%);
+}
+.feed-img { object-fit: contain; opacity: 0.92; }
+.overlay { pointer-events: none; }
+.lmk { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  background: hsl(var(--success)); box-shadow: 0 0 10px hsl(var(--success) / 0.6); }
 .feed-empty { position: absolute; inset: 0; }
 .feed.locked { border-color: hsl(var(--success) / 0.6); box-shadow: inset 0 0 60px hsl(var(--success) / 0.18); }
 .feed.present { border-color: hsl(var(--primary) / 0.5); }
@@ -576,8 +585,8 @@ details.json pre {
 .bracket.tr { right: 16px; top: 16px; border-left: none; border-bottom: none; border-radius: 0 10px 0 0; }
 .bracket.bl { left: 16px; bottom: 16px; border-right: none; border-top: none; border-radius: 0 0 0 10px; }
 .bracket.br { right: 16px; bottom: 16px; border-left: none; border-top: none; border-radius: 0 0 10px 0; }
-.bbox { position: absolute; border: 2.5px solid hsl(var(--success)); border-radius: 12px; box-shadow: 0 0 18px hsl(var(--success) / 0.45);
-  transition: left .5s cubic-bezier(.2,.7,.2,1), top .5s, width .5s, height .5s; }
+.bbox { position: absolute; border: 2.5px solid hsl(var(--success)); border-radius: 12px;
+  box-shadow: 0 0 18px hsl(var(--success) / 0.45); }
 .guide { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-radius: 14px;
   background: hsl(0 0% 0% / 0.5); border: 1px solid hsl(var(--border)); backdrop-filter: blur(6px);

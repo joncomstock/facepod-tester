@@ -45,3 +45,13 @@ export interface BarView {
   /** ok = passing comfortably, warn = passing within margin, bad = failing. */
   tone: "ok" | "warn" | "bad";
 }
+
+/** Per-frame live metadata (Lane 1) — drives overlay/guidance/live-quality/glow.
+ *  Mirrors LiveSnapshot but with nulls instead of optionals for stable rendering. */
+export interface LiveSnapshotState {
+  numberOfFaces: number;
+  quality: number | null;
+  boundingBox: { x: number; y: number; width: number; height: number } | null;
+  landmarks: { type?: string; x: number; y: number }[] | null;
+  positioningFeedback: PositioningFeedback | null;
+}
