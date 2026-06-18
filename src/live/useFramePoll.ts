@@ -39,6 +39,10 @@ export function useFramePoll(opts: Options): FramePollState {
     abortRef.current?.abort();
     sleepResolveRef.current?.();
     try { await inFlightRef.current; } catch { /* AbortError expected */ }
+    // Drop the displayed frame so a stale frame from the old session never lingers.
+    setVideoFrame(null);
+    setLiveSnapshot(null);
+    setSnapshotAgeMs(null);
   };
   const stopRef = useRef(stopAndDrain);
   stopRef.current = stopAndDrain;
@@ -46,6 +50,11 @@ export function useFramePoll(opts: Options): FramePollState {
   useEffect(() => {
     if (!opts.active) return;
     runningRef.current = true;
+    // Reset the cursor on every (re)activation. The poll lane reactivates after a
+    // reconnect (scene goes idle→live), and a new session's seq can restart BELOW
+    // the previous cursor — keeping the old cursor would make the server return
+    // "nothing newer" forever and freeze the feed.
+    lastSeqRef.current = "-1";
     const loop = async () => {
       while (runningRef.current && ref.current.active) {
         const ac = new AbortController();
