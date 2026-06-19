@@ -137,6 +137,13 @@ export function guidanceForSnapshot(
   snap: LiveSnapshotState | null,
 ): { text: string | null; derived: boolean } | null {
   if (!snap) return null;
+  // A geometry-less snapshot (no faces, quality, bbox, or positioning) carries NO
+  // live signal: this firmware's intermediate results stream only operation status,
+  // never per-frame geometry. Defer to the capture-frame guidance rather than
+  // falsely asserting "no face" while a finalized capture clearly found one.
+  const hasSignal = snap.numberOfFaces >= 1 || snap.quality != null ||
+    snap.boundingBox != null || snap.positioningFeedback != null;
+  if (!hasSignal) return null;
   if (snap.numberOfFaces < 1) {
     return { text: "Step in front of the camera", derived: true };
   }

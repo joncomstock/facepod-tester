@@ -4,7 +4,7 @@ import { loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
-import { overlayDecision } from "../../live/overlayDisplay.ts";
+import { overlayDecision, overlayFromFrame } from "../../live/overlayDisplay.ts";
 import { computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
@@ -56,13 +56,22 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     },
   });
 
-  const { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: stopFrames } = useFramePoll({
+  const { videoFrame, liveSnapshot, snapshotAgeMs, fps, stopAndDrain: stopFrames } = useFramePoll({
     active: scene === "live",
     sessionGeneration: status?.sessionGeneration ?? 0,
     onError,
     restartKey: feedEpoch,
   });
-  const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 });
+  // Overlay source: prefer the real-time live snapshot (when a firmware streams
+  // per-frame geometry); otherwise fall back to the finalized capture frame, whose
+  // bbox/landmarks ARE populated. This firmware's intermediate stream carries no
+  // geometry, so without the fallback the box never draws (it updates at capture
+  // cadence ~per op, not per video frame).
+  const overlay = overlayDecision({ snapshot: liveSnapshot, snapshotAgeMs, fadeStartMs: 750, removeMs: 1500 })
+    ?? overlayFromFrame(frame);
+  // Face presence for the glow: either lane seeing a face counts (the live snapshot
+  // is empty on this firmware, so the capture frame carries presence).
+  const liveFaces = Math.max(liveSnapshot?.numberOfFaces ?? 0, frame?.numberOfFaces ?? 0);
 
   // Positioning guidance prefers the PER-FRAME live snapshot (Lane 1); a live
   // corrective ("Turn right", "Move closer") updates in real time. Only when the
@@ -211,7 +220,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell">
-      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveSnapshot?.numberOfFaces} overlay={overlay} onNaturalSize={setFrameNat} />
+      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} />
       <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
       <DerivedHints brightness={brightness} distance={distance} />
       <ActionDock
@@ -233,7 +242,15 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         : deviceParamsError
           ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
           : null}
-      <LiveDataDisclosure frame={frame} />
+      <LiveDataDisclosure
+        frame={frame}
+        frameNat={frameNat}
+        videoDatatype={videoFrame?.datatype ?? null}
+        fps={fps}
+        brightness={brightness}
+        distance={distance}
+        hasReference={hasReference}
+      />
       <p className="hint">
         {guidanceDerived
           ? "Guidance is derived in-UI from face size/status, not HID-measured."

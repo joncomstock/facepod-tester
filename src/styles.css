@@ -59,16 +59,25 @@ body {
 
 /* ---- Masthead ---- */
 header.masthead {
-  display: flex;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
   gap: 14px;
-  margin-bottom: 2px;
+  margin-bottom: 14px;
 }
 header.masthead h1 {
+  justify-self: start;
   font-size: 22px;
   margin: 0;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+/* State pill (+ mock tag) centered in the header, replacing the old status row. */
+.masthead-status {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 header.masthead h1::before {
   content: "";
@@ -82,25 +91,10 @@ header.masthead h1::before {
   vertical-align: middle;
 }
 header.masthead .mode-toggle {
-  margin-left: auto;
+  justify-self: end;
 }
 
-/* ---- Status strip ---- */
-.status-strip {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  padding: 11px 16px;
-  margin: 16px 0 24px;
-  position: sticky;
-  top: 12px;
-  z-index: 10;
-  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.4);
-}
+/* ---- State pill ---- */
 .state-pill {
   display: inline-flex;
   align-items: center;
@@ -541,7 +535,10 @@ details.json pre {
 
 /* Feed (hero viewfinder) */
 .feed {
-  position: relative; flex: 1; min-height: 420px; margin: 12px 0; border-radius: 18px;
+  /* Capped so the viewfinder doesn't dominate the 800×1280 kiosk — leaves room for
+     the telemetry + frame-data surface below without scrolling. */
+  position: relative; flex: none; height: 40vh; min-height: 260px; max-height: 440px;
+  margin: 10px 0; border-radius: 18px;
   overflow: hidden; border: 1px solid hsl(var(--border));
   background: radial-gradient(420px 520px at 50% 42%, hsl(220 18% 22%), hsl(220 16% 9%) 70%, hsl(220 18% 6%));
 }
@@ -635,6 +632,27 @@ details.json pre {
 .derived-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); }
 .derived-item { font-size: 13px; color: hsl(var(--foreground)); }
+
+/* Frame-data surface — always-visible 2-column live device + API output */
+.framedata { margin: 12px 0 4px; padding: 12px 16px; border: 1px solid hsl(var(--border));
+  border-radius: 14px; background: hsl(var(--card)); }
+.fd-title { font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin-bottom: 8px; }
+.fd-sub { font-weight: 600; letter-spacing: 0; text-transform: none; opacity: .65; margin-left: 8px; }
+.fd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; }
+.fd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 5px 0; border-bottom: 1px solid hsl(var(--border) / 0.4); }
+.fd-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.fd-v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground)); text-align: right; }
+.fd-v.ok { color: hsl(var(--success)); }
+.fd-v.bad { color: hsl(var(--destructive)); }
+.fd-v.muted { color: hsl(var(--muted-foreground)); }
+.fd-wide { display: flex; gap: 14px; align-items: baseline; justify-content: space-between;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid hsl(var(--border) / 0.5); }
+.fd-wide .fd-v { font-size: 13px; font-weight: 600; word-break: break-word; text-align: right; }
+@media (max-width: 520px) { .fd-grid { grid-template-columns: 1fr; } }
 
 /* ---- 800×1280 portrait kiosk: the primary target ---- */
 @media (max-width: 840px) {

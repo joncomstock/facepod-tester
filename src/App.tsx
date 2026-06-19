@@ -149,6 +149,17 @@ export function App() {
     <div className="app">
       <header className="masthead">
         <h1>FacePod Tester</h1>
+        <div className="masthead-status" role="status" aria-live="polite">
+          <span className={`state-pill ${pill.cls}`}>
+            <span className="dot" />
+            {pill.label}
+          </span>
+          {status?.mock && (
+            <span className="mock-tag">
+              Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
+            </span>
+          )}
+        </div>
         <div className="mode-toggle" role="tablist" aria-label="View mode">
           <button
             role="tab"
@@ -168,18 +179,6 @@ export function App() {
           </button>
         </div>
       </header>
-
-      <div className="status-strip" role="status" aria-live="polite">
-        <span className={`state-pill ${pill.cls}`}>
-          <span className="dot" />
-          {pill.label}
-        </span>
-        {status?.mock && (
-          <span className="mock-tag">
-            Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
-          </span>
-        )}
-      </div>
 
       {error && (
         <div className="error-banner" role="alert">

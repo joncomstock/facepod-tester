@@ -32,6 +32,9 @@ describe("guidanceForSnapshot (per-frame, Lane 1)", () => {
     expect(guidanceForSnapshot(null)).toBeNull();
     // Face present but the device gave no positioning bits → fall back to capture.
     expect(guidanceForSnapshot(snap({ numberOfFaces: 1, positioningFeedback: null }))).toBeNull();
+    // A fully geometry-less snapshot (this firmware streams no per-frame geometry)
+    // carries no signal → defer to the capture frame, NOT a false "no face".
+    expect(guidanceForSnapshot(snap({ numberOfFaces: 0, quality: null }))).toBeNull();
   });
 });
 

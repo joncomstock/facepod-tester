@@ -57,6 +57,16 @@ export function Telemetry({ frame, liveQuality, thresholds, hasReference, verdic
   const cls = verdict.state === "accept" ? "accept"
     : verdict.state === "reject" ? "reject"
     : "searching";
+  // Liveness is shown as live CONFIDENCE (1 − spoofScore) so higher = more live,
+  // consistent with Quality/Match — a raw spoof of 0 (best) was reading as a scary
+  // empty "0%". Only when a face was actually scored; unmeasured/no-face → "—".
+  const livenessMeasured = !!frame && frame.numberOfFaces >= 1 &&
+    frame.faceStatus !== "liveness_unmeasured";
+  const livenessValue = livenessMeasured ? 1 - frame!.spoofScore : null;
+  const livenessThreshold = 1 - thresholds.maximalSpoofScore;
+  const livenessDeviceThreshold = deviceParams?.recMaxSpoofProbability != null
+    ? 1 - deviceParams.recMaxSpoofProbability
+    : undefined;
   const label = verdict.state === "accept" ? "✓ ACCEPT"
     : verdict.state === "reject" ? "✗ REJECT"
     : verdict.state === "acquiring" ? "Acquiring…"
@@ -71,7 +81,7 @@ export function Telemetry({ frame, liveQuality, thresholds, hasReference, verdic
       </div>
       <div className="telem">
         <Bar name="Quality" value={liveQuality ?? frame?.quality ?? null} threshold={thresholds.minimalQuality} higherPasses label={`min ${Math.round(thresholds.minimalQuality * 100)}`} deviceThreshold={deviceParams?.recMinVerifyTemplateQuality} />
-        <Bar name="Liveness" value={frame ? frame.spoofScore : null} threshold={thresholds.maximalSpoofScore} higherPasses={false} label={`max ${Math.round(thresholds.maximalSpoofScore * 100)}`} deviceThreshold={deviceParams?.recMaxSpoofProbability} />
+        <Bar name="Liveness" value={livenessValue} threshold={livenessThreshold} higherPasses label={`min ${Math.round(livenessThreshold * 100)}`} deviceThreshold={livenessDeviceThreshold} />
         <Bar name="Match" value={hasReference ? (frame?.matchScore ?? null) : null} threshold={thresholds.minimalMatchScore} higherPasses label={`min ${Math.round(thresholds.minimalMatchScore * 100)}`} deviceThreshold={deviceParams?.recMinMatchScoreL1} />
       </div>
       {!hasReference && <p className="hint">Match needs a reference — set one in the dock below.</p>}
