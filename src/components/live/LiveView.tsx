@@ -12,7 +12,6 @@ import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
 import { LiveDataDisclosure } from "./LiveDataDisclosure.tsx";
-import { DerivedHints } from "./DerivedHints.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -219,43 +218,48 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }
 
   return (
-    <div className="live-shell">
-      <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} />
-      <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} verdict={verdict} deviceParams={deviceParams ?? null} />
-      <DerivedHints brightness={brightness} distance={distance} />
-      <ActionDock
-        watching={watching}
-        hasReference={hasReference}
-        onToggleWatch={() => setWatching((w) => !w)}
-        onPickReference={pickReference}
-        onClearReference={() => setRefTemplate(null)}
-        onEnd={endSession}
-        onUseCurrentFace={useCurrentFace}
-        canUseCurrentFace={lastTemplate !== null}
-      />
-      {deviceParams
-        ? (
-          <p className="hint">
-            Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
-          </p>
-        )
-        : deviceParamsError
-          ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
-          : null}
-      <LiveDataDisclosure
-        frame={frame}
-        frameNat={frameNat}
-        videoDatatype={videoFrame?.datatype ?? null}
-        fps={fps}
-        brightness={brightness}
-        distance={distance}
-        hasReference={hasReference}
-      />
-      <p className="hint">
-        {guidanceDerived
-          ? "Guidance is derived in-UI from face size/status, not HID-measured."
-          : "Guidance is from the device's positioning feedback."}
-      </p>
+    <div className="live-shell live-grid">
+      <div className="live-feed">
+        <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} />
+        <p className="hint feed-note">
+          {guidanceDerived
+            ? "Guidance is derived in-UI from face size/status, not HID-measured."
+            : "Guidance is from the device's positioning feedback."}
+        </p>
+      </div>
+      <div className="live-stats">
+        <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} />
+        {deviceParams
+          ? (
+            <p className="hint">
+              Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
+            </p>
+          )
+          : deviceParamsError
+            ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
+            : null}
+        <LiveDataDisclosure
+          frame={frame}
+          frameNat={frameNat}
+          videoDatatype={videoFrame?.datatype ?? null}
+          fps={fps}
+          brightness={brightness}
+          distance={distance}
+          hasReference={hasReference}
+        />
+      </div>
+      <div className="live-dock">
+        <ActionDock
+          watching={watching}
+          hasReference={hasReference}
+          onToggleWatch={() => setWatching((w) => !w)}
+          onPickReference={pickReference}
+          onClearReference={() => setRefTemplate(null)}
+          onEnd={endSession}
+          onUseCurrentFace={useCurrentFace}
+          canUseCurrentFace={lastTemplate !== null}
+        />
+      </div>
     </div>
   );
 }

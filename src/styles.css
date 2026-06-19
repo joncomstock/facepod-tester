@@ -533,6 +533,34 @@ details.json pre {
 /* ================= Live HUD ================= */
 .live-shell { display: flex; flex-direction: column; min-height: 60vh; }
 
+/* Two-pane live layout: feed (left) + readouts (right), dock spans the bottom.
+   Built for the 800×1280 portrait kiosk — the 9:16 feed only needs ~half the
+   width, so the stats sit beside it and feed + every stat fit without scrolling. */
+.live-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  gap: 16px 20px;
+  align-items: start;
+}
+.live-grid .live-dock { grid-column: 1 / -1; }
+.live-grid .live-stats { min-width: 0; }
+/* Feed sizes to the left column by its native 9:16 ratio (taller than the old
+   height-capped box, and no wasted side gutters). */
+.live-grid .feed { aspect-ratio: 9 / 16; height: auto; min-height: 0; max-height: none; margin: 0; }
+.live-grid .feed-note { margin: 8px 2px 0; }
+.live-grid .guide { font-size: 15px; padding: 9px 16px; bottom: 16px; }
+.live-grid .guide .ar { font-size: 17px; }
+/* Frame-data goes single-column in the narrower right pane (2-col would crush
+   wide rows like Bounding box / Template). */
+.live-grid .live-stats .fd-grid { grid-template-columns: 1fr; }
+.live-grid .framedata { margin-top: 14px; }
+
+/* Stack on small/phone widths; restore the centered, height-capped feed. */
+@media (max-width: 560px) {
+  .live-grid { grid-template-columns: 1fr; }
+  .live-grid .feed { aspect-ratio: auto; height: 40vh; min-height: 260px; max-height: 420px; }
+}
+
 /* Feed (hero viewfinder) */
 .feed {
   /* Capped so the viewfinder doesn't dominate the 800×1280 kiosk — leaves room for
@@ -574,16 +602,28 @@ details.json pre {
   font-size: 20px; font-weight: 700; white-space: nowrap; }
 .guide .ar { font-size: 22px; color: hsl(var(--primary)); filter: var(--glow-primary); }
 
-/* Verdict chip */
-.live-shell .verdict { height: 78px; border-radius: 16px; display: flex; align-items: center; justify-content: center; gap: 16px;
-  font-size: 30px; font-weight: 800; letter-spacing: .04em; border: 1px solid hsl(var(--border)); transition: all .35s; margin: 4px 0; }
-.live-shell .verdict .big { display: inline-flex; align-items: center; gap: 14px; }
-.live-shell .verdict.searching { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
-.live-shell .verdict.accept { background: hsl(var(--success) / 0.13); color: hsl(var(--success)); border-color: hsl(var(--success) / 0.45);
-  text-shadow: 0 0 18px hsl(var(--success) / 0.5); animation: pop .4s cubic-bezier(.2,1.4,.4,1); }
-.live-shell .verdict.reject { background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.4); }
-.live-shell .verdict .reason { font-size: 15px; font-weight: 600; letter-spacing: 0; opacity: .85; text-transform: none; }
-@keyframes pop { 0% { transform: scale(.96); } 60% { transform: scale(1.02); } 100% { transform: scale(1); } }
+/* Verdict — folded onto the feed as a color-coded chip (top-center overlay). */
+.feed-verdict {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px;
+  max-width: calc(100% - 52px); padding: 8px 18px; border-radius: 999px; text-align: center;
+  font-size: 18px; font-weight: 800; letter-spacing: .04em;
+  background: hsl(0 0% 0% / 0.55); border: 1px solid hsl(var(--border)); backdrop-filter: blur(6px);
+  transition: color .3s, background .3s, box-shadow .3s, border-color .3s;
+}
+.feed-verdict.searching { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+.feed-verdict.acquiring { color: hsl(var(--primary)); border-color: hsl(var(--primary) / 0.4); }
+.feed-verdict.accept {
+  color: hsl(var(--success)); border-color: hsl(var(--success) / 0.55); background: hsl(var(--success) / 0.16);
+  box-shadow: 0 0 26px hsl(var(--success) / 0.4); text-shadow: 0 0 14px hsl(var(--success) / 0.5);
+  animation: pop .4s cubic-bezier(.2,1.4,.4,1);
+}
+.feed-verdict.reject {
+  color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.5);
+  background: hsl(var(--destructive) / 0.14); box-shadow: 0 0 22px hsl(var(--destructive) / 0.32);
+}
+.feed-verdict .vr { font-size: 12px; font-weight: 600; letter-spacing: 0; opacity: .85; text-transform: none; }
+@keyframes pop { 0% { transform: translateX(-50%) scale(.94); } 60% { transform: translateX(-50%) scale(1.02); } 100% { transform: translateX(-50%) scale(1); } }
 
 /* Telemetry bars */
 .telem { display: flex; flex-direction: column; gap: 14px; margin: 14px 0 0; }

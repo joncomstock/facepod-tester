@@ -28,6 +28,11 @@ export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, o
   const locked = verdict.state === "accept";
   const present = liveFaces != null ? liveFaces >= 1 : verdict.state !== "searching";
   const box = overlay && nat ? mapBox(overlay.box, nat.w, nat.h) : null;
+  const vlabel = verdict.state === "accept" ? "✓ ACCEPT"
+    : verdict.state === "reject" ? "✗ REJECT"
+    : verdict.state === "acquiring" ? "Acquiring…"
+    : "Watching…";
+  const vreasons = verdict.reasons.length > 0 ? verdict.reasons.join(" · ") : null;
   return (
     <div className={`feed ${locked ? "locked" : present ? "present" : "searching"}`}>
       <div className="feed-media">
@@ -62,6 +67,10 @@ export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, o
       <div className="scan" />
       <div className="bracket tl" /><div className="bracket tr" />
       <div className="bracket bl" /><div className="bracket br" />
+      <div className={`feed-verdict ${verdict.state}`}>
+        <span>{vlabel}</span>
+        {vreasons && <span className="vr">{vreasons}</span>}
+      </div>
       {guidance && (
         <div className="guide"><span className="ar">⌖</span>{guidance}</div>
       )}
