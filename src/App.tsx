@@ -149,7 +149,6 @@ export function App() {
     <div className="app">
       <header className="masthead">
         <h1>FacePod Tester</h1>
-        <span className="sub">Local hardware test utility · HID U.ARE.U Face Module</span>
         <div className="mode-toggle" role="tablist" aria-label="View mode">
           <button
             role="tab"
@@ -175,18 +174,11 @@ export function App() {
           <span className="dot" />
           {pill.label}
         </span>
-        <div className="status-meta">
-          <span><b>Transport:</b> {status?.mock ? "Mock" : "USB / FFI"}</span>
-          {!status?.mock && status?.dllPath && (
-            <span title={status.dllPath}><b>DLL:</b> {status.dllPath.split(/[\\/]/).pop()}</span>
-          )}
-          <span><b>Camera:</b> {status?.cameraOpen ? "open" : "closed"}</span>
-          {status?.mock && (
-            <span className="mock-tag">
-              Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
-            </span>
-          )}
-        </div>
+        {status?.mock && (
+          <span className="mock-tag">
+            Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
+          </span>
+        )}
       </div>
 
       {error && (

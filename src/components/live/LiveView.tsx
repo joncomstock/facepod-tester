@@ -192,7 +192,6 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
             the device default is pre-configured.
           </p>
           <button className="go" onClick={goLive}>Go Live</button>
-          <p className="target">Transport <b>{loadConnectionSettings().mock ? "Mock" : "USB / FFI"}</b> · default camera</p>
         </div>
       </div>
     );
