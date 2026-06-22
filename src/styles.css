@@ -93,6 +93,7 @@ header.masthead h1::before {
 header.masthead .mode-toggle {
   justify-self: end;
 }
+header.masthead .settings-btn { justify-self: end; }
 
 /* ---- State pill ---- */
 .state-pill {
