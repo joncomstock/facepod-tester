@@ -50,9 +50,11 @@ export function App() {
     setScenario(next);
     saveConnectionSettings({ ...loadConnectionSettings(), mock, scenario: next });
     if (status?.connected && status?.mock) {
-      api.setScenario(next).catch((e) =>
-        setError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 })
-      );
+      api.setScenario(next)
+        .then((res) => setStatus(res.status))
+        .catch((e) =>
+          setError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 })
+        );
     }
   }, [mock, status]);
 

@@ -66,7 +66,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     active: watching && scene === "live",
     refTemplate,
     thresholds,
-    onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); onError(null); },
+    onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); },
     onError: (e) => {
       setWatching(false);
       onError(e);
@@ -292,7 +292,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           referenceThumb={refThumb}
           referenceLabel={refLabel}
           canUseCurrentFace={currentFaceOk}
-          onToggleWatch={() => setWatching((w) => !w)}
+          onToggleWatch={() => { if (!watching) onError(null); setWatching((w) => !w); }}
           onPickReference={pickReference}
           onClearReference={() => { setRefTemplate(null); setRefThumb(null); setRefLabel(null); }}
           onEnd={endSession}
