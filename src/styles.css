@@ -701,3 +701,41 @@ details.json pre {
   /* Touch sizing for the manual surface too. */
   .btn { min-height: 44px; }
 }
+
+/* ---- Settings sheet (centered modal on wide, bottom sheet on narrow) ---- */
+.sheet-overlay {
+  position: fixed; inset: 0; z-index: 100; display: flex;
+  align-items: center; justify-content: center; padding: 24px;
+  background: hsl(0 0% 0% / 0.6); backdrop-filter: blur(2px);
+  animation: reveal 0.16s ease-out both;
+}
+.sheet {
+  width: 100%; max-width: 460px; max-height: calc(100vh - 48px); overflow-y: auto;
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: var(--radius); box-shadow: 0 24px 64px hsl(0 0% 0% / 0.55);
+  animation: panel-in 0.22s ease-out both;
+}
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 15px 20px; border-bottom: 1px solid hsl(var(--border));
+}
+.sheet-head h3 { margin: 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.sheet-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 22px; }
+.settings-group { display: flex; flex-direction: column; gap: 10px; }
+.settings-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
+}
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; }
+.field > span { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.field input, .field select { width: 160px; }
+
+@media (max-width: 560px) {
+  .sheet-overlay { align-items: flex-end; padding: 0; }
+  .sheet {
+    max-width: 100%; max-height: 85vh;
+    border-radius: 16px 16px 0 0; border-bottom: none;
+    animation: sheet-up 0.24s ease-out both;
+  }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
