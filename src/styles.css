@@ -757,3 +757,18 @@ details.json pre {
   }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
+.ref-set { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ref-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 1px solid hsl(var(--border)); }
+.ref-thumb-face { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; background: hsl(var(--muted)); color: hsl(var(--primary)); }
+.ref-src { font-size: 13px; font-weight: 700; color: hsl(var(--success)); }
+.ref-hint { font-size: 11px; color: hsl(var(--muted-foreground)); }
+/* Feed status badge (top-right) for paused / no-signal video lane. */
+.feed-badge {
+  position: absolute; top: 14px; right: 14px; z-index: 3;
+  padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  background: hsl(0 0% 0% / 0.55); border: 1px solid hsl(var(--border)); backdrop-filter: blur(6px);
+  color: hsl(var(--muted-foreground));
+}
+.feed-badge.stale { color: hsl(var(--warning)); border-color: hsl(var(--warning) / 0.5); }

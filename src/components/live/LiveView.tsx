@@ -5,9 +5,10 @@ import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision, overlayFromFrame } from "../../live/overlayDisplay.ts";
-import { computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
+import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
+import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
@@ -32,14 +33,31 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const [watching, setWatching] = useState(false);
   const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
-  const [lastTemplate, setLastTemplate] = useState<string | null>(null);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [frameNat, setFrameNat] = useState<{ w: number; h: number } | null>(null);
   const [feedEpoch, setFeedEpoch] = useState(0); // bump to re-arm the frame poll
+  const [refThumb, setRefThumb] = useState<string | null>(null);
+  const [refLabel, setRefLabel] = useState<string | null>(null);
+  const [frameAt, setFrameAt] = useState<number | null>(null);          // last capture frame
+  const [videoFrameAt, setVideoFrameAt] = useState<number | null>(null); // last video frame
+  const [watchStartedAt, setWatchStartedAt] = useState<number | null>(null); // for the startup grace
+  const [now, setNow] = useState<number>(() => performance.now());
   const frameTickRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const hasReference = refTemplate !== null;
+
+  const captureAgeMs = frameAt == null ? null : now - frameAt;
+  const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
+  const sinceStartMs = watchStartedAt == null ? null : now - watchStartedAt;
+  // Capture staleness scales with the configurable capture timeout (+ match/processing margin).
+  const captureStaleAfterMs = captureStaleMs(thresholds.timeoutMs);
+  const captureStatus = telemetryStatus({ watching, captureAgeMs, sinceStartMs, staleAfterMs: captureStaleAfterMs });
+  const feedStatus = videoStatus({ active: scene === "live" && watching, videoAgeMs, sinceStartMs });
+  // Eligible only when the capture lane is genuinely LIVE (not paused/stale) AND the
+  // current frame passes the strict gate — a stalled good frame must not qualify.
+  const currentFaceOk = captureStatus === "live" && canUseCurrentFace(frame, thresholds);
+
   const verdict = frame
     ? computeVerdict(frame, thresholds, hasReference)
     : { state: "searching" as const, reasons: [] };
@@ -48,7 +66,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     active: watching && scene === "live",
     refTemplate,
     thresholds,
-    onFrame: (f) => { setFrame(f); if (f.liveTemplate) setLastTemplate(f.liveTemplate); },
+    onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); },
     onError: (e) => {
       setWatching(false);
       onError(e);
@@ -56,7 +74,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   });
 
   const { videoFrame, liveSnapshot, snapshotAgeMs, fps, stopAndDrain: stopFrames } = useFramePoll({
-    active: scene === "live",
+    active: scene === "live" && watching,
     sessionGeneration: status?.sessionGeneration ?? 0,
     onError,
     restartKey: feedEpoch,
@@ -130,7 +148,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     }
     setFrame(null);       // 4. clear client state (only after a real disconnect)
     setRefTemplate(null);
-    setLastTemplate(null);
+    setRefThumb(null);
+    setRefLabel(null);
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
@@ -138,6 +157,19 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   useEffect(() => {
     if (!watching) setFrame(null);
+  }, [watching]);
+
+  useEffect(() => {
+    if (!watching) return;
+    const id = setInterval(() => setNow(performance.now()), 1000);
+    return () => clearInterval(id);
+  }, [watching]);
+  useEffect(() => { if (videoFrame) setVideoFrameAt(performance.now()); }, [videoFrame]);
+  // On (re)start, reset both lane timestamps and stamp the start, so the grace window
+  // applies and a leftover/null age can't flash "No signal" immediately.
+  useEffect(() => {
+    if (watching) { setFrameAt(null); setVideoFrameAt(null); setWatchStartedAt(performance.now()); }
+    else { setWatchStartedAt(null); }
   }, [watching]);
 
   useEffect(() => {
@@ -161,8 +193,12 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   );
 
   const useCurrentFace = useCallback(() => {
-    if (lastTemplate) setRefTemplate(lastTemplate);
-  }, [lastTemplate]);
+    if (captureStatus === "live" && canUseCurrentFace(frame, thresholds) && frame?.liveTemplate) {
+      setRefTemplate(frame.liveTemplate);
+      setRefThumb(null);
+      setRefLabel("Current face");
+    }
+  }, [frame, thresholds, captureStatus]);
 
   const pickReference = useCallback(async (file: File) => {
     const read = await readImageFile(file);
@@ -181,6 +217,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         return;
       }
       setRefTemplate(r.result.template.data);
+      setRefThumb(`data:image/${read.datatype === "jpg" ? "jpeg" : read.datatype};base64,${read.data}`);
+      setRefLabel("Photo");
     } catch (e) {
       onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
     }
@@ -217,8 +255,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   return (
     <div className="live-shell live-grid">
       <div className="live-left">
-        <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} />
-        <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} />
+        <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} status={feedStatus} />
+        <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} status={captureStatus} />
         {deviceParams
           ? (
             <p className="hint">
@@ -243,18 +281,21 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           brightness={brightness}
           distance={distance}
           hasReference={hasReference}
+          captureStatus={captureStatus}
+          videoStatus={feedStatus}
         />
       </div>
       <div className="live-dock">
         <ActionDock
           watching={watching}
-          hasReference={hasReference}
+          referenceThumb={refThumb}
+          referenceLabel={refLabel}
+          canUseCurrentFace={currentFaceOk}
           onToggleWatch={() => setWatching((w) => !w)}
           onPickReference={pickReference}
-          onClearReference={() => setRefTemplate(null)}
+          onClearReference={() => { setRefTemplate(null); setRefThumb(null); setRefLabel(null); }}
           onEnd={endSession}
           onUseCurrentFace={useCurrentFace}
-          canUseCurrentFace={lastTemplate !== null}
         />
       </div>
     </div>
