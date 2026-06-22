@@ -18,13 +18,16 @@ interface Props {
 
 const DASH = "—";
 
-function Row({ k, v, tone }: { k: string; v: ReactNode; tone?: "ok" | "bad" | "muted" }) {
+function Row({ k, v, tone, note }: { k: string; v: ReactNode; tone?: "ok" | "bad" | "muted"; note?: string }) {
   // Empty (em-dash) values default to muted so the no-face state reads calm, not a wall of bright dashes.
   const cls = tone ?? (v === DASH ? "muted" : undefined);
   return (
     <div className="fd-row">
       <span className="fd-k">{k}</span>
-      <span className={`fd-v${cls ? " " + cls : ""}`}>{v}</span>
+      <span className="fd-val">
+        <span className={`fd-v${cls ? " " + cls : ""}`}>{v}</span>
+        {note && <span className="fd-note">{note}</span>}
+      </span>
     </div>
   );
 }
@@ -50,13 +53,20 @@ export function LiveDataDisclosure(
   const lm = frame?.landmarks ?? null;
   const hasFace = !!frame && frame.numberOfFaces >= 1;
   const livenessMeasured = hasFace && frame!.faceStatus !== "liveness_unmeasured";
+  const headTag = captureStatus === "paused"
+    ? "paused"
+    : (captureStatus === "stale" || videoStatus === "stale")
+    ? "no signal"
+    : "live";
 
   return (
     <section className="framedata">
-      <div className="fd-title">
-        Frame data <span className="fd-sub">live device + API output</span>
+      <div className="fd-head">
+        <span className="fd-title">Frame data</span>
+        <span className="fd-headtag">{headTag}</span>
       </div>
 
+      <div className="fd-scroll">
       <Group title="Face" status={captureStatus}>
         <Row k="Faces" v={frame ? frame.numberOfFaces : DASH} />
         <Row k="Face status" v={frame?.faceStatus ?? DASH} />
@@ -78,7 +88,7 @@ export function LiveDataDisclosure(
       </Group>
 
       <Group title="Liveness" status={captureStatus}>
-        <Row k="Spoof score" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} />
+        <Row k="Spoof score" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} note="lower is better" />
         <Row
           k="Liveness"
           v={!hasFace ? DASH : !livenessMeasured ? "n/a" : frame!.livenessPassed ? "PASS" : "FAIL"}
@@ -99,9 +109,10 @@ export function LiveDataDisclosure(
         <Row k="Frame size" v={frameNat ? `${frameNat.w}×${frameNat.h}` : DASH} />
         <Row k="Frame type" v={videoDatatype ?? DASH} />
         <Row k="Feed rate" v={fps != null ? `${fps.toFixed(1)} fps` : DASH} />
-        <Row k="Brightness" v={brightness != null ? `${Math.round(brightness * 100)}%` : DASH} tone="muted" />
-        <Row k="Distance" v={distance ?? DASH} tone="muted" />
+        <Row k="Brightness" v={brightness != null ? `${Math.round(brightness * 100)}%` : DASH} tone="muted" note="derived, not HID-measured" />
+        <Row k="Distance" v={distance ?? DASH} tone="muted" note="derived, not HID-measured" />
       </Group>
+      </div>
     </section>
   );
 }

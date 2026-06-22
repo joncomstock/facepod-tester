@@ -69,19 +69,22 @@ export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, o
       <div className="scan" />
       <div className="bracket tl" /><div className="bracket tr" />
       <div className="bracket bl" /><div className="bracket br" />
-      {/* (b) wrap the existing verdict chip: */}
-      {status !== "paused" && (
+      {/* Verdict chip (top-center) — only while the lane is genuinely live. */}
+      {status === "live" && (
         <div className={`feed-verdict ${verdict.state}`}>
           <span>{vlabel}</span>
           {vreasons && <span className="vr">{vreasons}</span>}
         </div>
       )}
-      {/* (a) badge: */}
+      {/* Video-lane status badge (top-right). */}
       {status !== "live" && (
         <div className={`feed-badge ${status}`}>{status === "paused" ? "Paused" : "No signal"}</div>
       )}
-      {guidance && (
+      {status === "live" && guidance && (
         <div className="guide"><span className="ar">⌖</span>{guidance}</div>
+      )}
+      {status !== "live" && (
+        <div className="feed-overlay">{status === "paused" ? "Paused" : "No signal"}</div>
       )}
     </div>
   );

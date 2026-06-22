@@ -44,6 +44,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const [now, setNow] = useState<number>(() => performance.now());
   const frameTickRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const adoptedRef = useRef(false); // one-time session adoption (see effect below)
 
   const hasReference = refTemplate !== null;
 
@@ -160,6 +161,21 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     if (!watching) setFrame(null);
   }, [watching]);
 
+  // Adopt an already-open device session (e.g. after a page reload) into the HUD
+  // when status first resolves — as live but PAUSED, never auto-capturing. `status`
+  // arrives async from App, so the useState initializer alone leaves the HUD on
+  // "idle" while the header reads CAMERA OPEN. One-shot (adoptedRef) so it can't
+  // bounce End session back to live: endSession flips scene→idle before the async
+  // status refresh reports cameraOpen:false, which a recurring sync would re-adopt.
+  useEffect(() => {
+    if (adoptedRef.current || !status) return;
+    adoptedRef.current = true;
+    if (status.cameraOpen && scene === "idle") {
+      setScene("live");
+      setWatching(false);
+    }
+  }, [status, scene]);
+
   useEffect(() => {
     if (!watching) return;
     const id = setInterval(() => setNow(performance.now()), 1000);
@@ -230,10 +246,10 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
       <div className="live-shell">
         <div className="center-scene">
           <div className="idle-mark"><span className="m" /></div>
-          <h1 className="idle-title">Ready when you are</h1>
+          <h1 className="idle-title">FacePod Tester</h1>
           <p className="idle-sub">
-            Tap to bring the camera online and start watching for a face. No setup —
-            the device default is pre-configured.
+            Biometric face module diagnostics. Stand a subject in front of the
+            camera to begin.
           </p>
           <button className="go" onClick={goLive}>Go Live</button>
         </div>
@@ -246,45 +262,42 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
       <div className="live-shell">
         <div className="center-scene">
           <div className="ring" />
-          <h1 className="idle-title" style={{ fontSize: 26 }}>Bringing the camera online…</h1>
-          <p className="idle-sub">Connecting to the module and opening the default camera.</p>
+          <p className="connect-msg">Bringing the camera online…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="live-shell live-grid">
-      <div className="live-left">
-        <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} status={feedStatus} />
-        <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} status={captureStatus} />
-        {deviceParams
-          ? (
-            <p className="hint">
-              Device thresholds shown as the dashed reference tick. <button className="link-btn" onClick={refreshParams}>Refresh</button>
-            </p>
-          )
-          : deviceParamsError
-            ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
-            : null}
-        <p className="hint feed-note">
-          {guidanceDerived
-            ? "Guidance is derived in-UI from face size/status, not HID-measured."
-            : "Guidance is from the device's positioning feedback."}
-        </p>
-      </div>
-      <div className="live-right">
-        <LiveDataDisclosure
-          frame={frame}
-          frameNat={frameNat}
-          videoDatatype={videoFrame?.datatype ?? null}
-          fps={fps}
-          brightness={brightness}
-          distance={distance}
-          hasReference={hasReference}
-          captureStatus={captureStatus}
-          videoStatus={feedStatus}
-        />
+    <div className="live-shell">
+      <div className="live-grid">
+        <div className="live-left">
+          <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} status={feedStatus} />
+          <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} status={captureStatus} />
+          <p className="footnote">
+            {guidanceDerived
+              ? "Guidance derived in-UI from face size/status — not HID-measured."
+              : "Guidance from the device's positioning feedback."}
+            {deviceParams
+              ? <> Device thresholds shown as the dashed tick. <button className="link-btn" onClick={refreshParams}>Refresh</button></>
+              : deviceParamsError
+                ? ` Device parameters unavailable: ${deviceParamsError}`
+                : null}
+          </p>
+        </div>
+        <div className="live-right">
+          <LiveDataDisclosure
+            frame={frame}
+            frameNat={frameNat}
+            videoDatatype={videoFrame?.datatype ?? null}
+            fps={fps}
+            brightness={brightness}
+            distance={distance}
+            hasReference={hasReference}
+            captureStatus={captureStatus}
+            videoStatus={feedStatus}
+          />
+        </div>
       </div>
       <div className="live-dock">
         <ActionDock
