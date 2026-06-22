@@ -31,6 +31,7 @@ interface Props {
 export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
   const [watching, setWatching] = useState(false);
+  const [restoredNotice, setRestoredNotice] = useState(false); // one-time "session restored" banner
   const [frame, setFrame] = useState<CaptureFrame | null>(null);
   const [refTemplate, setRefTemplate] = useState<string | null>(null);
   const [brightness, setBrightness] = useState<number | null>(null);
@@ -173,8 +174,18 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     if (status.cameraOpen && scene === "idle") {
       setScene("live");
       setWatching(false);
+      setRestoredNotice(true); // tell the operator the session was restored, not freshly started
     }
   }, [status, scene]);
+
+  // The restore notice is one-time: it auto-dismisses, and clears the moment the
+  // operator starts watching (it's no longer relevant once they're capturing).
+  useEffect(() => {
+    if (!restoredNotice) return;
+    if (watching) { setRestoredNotice(false); return; }
+    const id = setTimeout(() => setRestoredNotice(false), 6000);
+    return () => clearTimeout(id);
+  }, [restoredNotice, watching]);
 
   useEffect(() => {
     if (!watching) return;
@@ -270,6 +281,15 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell">
+      {restoredNotice && (
+        <div className="notice-banner" role="status">
+          <div className="notice-main">
+            <span className="notice-title">Existing camera session restored</span>
+            <span className="notice-sub">Start watching to resume · End session to reconnect</span>
+          </div>
+          <button className="icon-btn" aria-label="Dismiss notice" onClick={() => setRestoredNotice(false)}>✕</button>
+        </div>
+      )}
       <div className="live-grid">
         <div className="live-left">
           <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} status={feedStatus} />
