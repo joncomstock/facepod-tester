@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame } from "./logic.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame, livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace } from "./logic.ts";
 import type { CaptureFrame, LiveSnapshotState, LiveThresholds } from "./types.ts";
 
 const snap = (over: Partial<LiveSnapshotState>): LiveSnapshotState => ({
@@ -216,5 +216,36 @@ describe("guidanceFor", () => {
   it("ignores real feedback when no face present and returns derived guidance", () => {
     const f = { ...baseFrame, numberOfFaces: 0, positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 } };
     expect(guidanceFor(f)).toEqual({ text: "Step in front of the camera", derived: true });
+  });
+});
+
+describe("livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace", () => {
+  const T: LiveThresholds = { minimalQuality: 0.7, maximalSpoofScore: 0.5, minimalMatchScore: 0.7 };
+  const baseFrame: CaptureFrame = {
+    image: null, quality: 0.9, spoofScore: 0.1, livenessPassed: true, numberOfFaces: 1,
+    boundingBox: null, isCaptured: true, faceStatus: "ok", matchScore: null, matchPassed: null,
+    positioningFeedback: null, landmarks: null, liveTemplate: "abc",
+  };
+
+  it("livenessConfidence inverts spoof", () => {
+    expect(livenessConfidence(0)).toBe(1);
+    expect(livenessConfidence(0.3)).toBeCloseTo(0.7);
+  });
+
+  it("livenessConfidenceThreshold inverts the max-spoof gate", () => {
+    expect(livenessConfidenceThreshold(0.5)).toBe(0.5);
+  });
+
+  it("canUseCurrentFace passes for one good measured face with a template", () => {
+    expect(canUseCurrentFace(baseFrame, T)).toBe(true);
+  });
+
+  it("canUseCurrentFace fails: no frame / no template / 2 faces / low quality / unmeasured / failed liveness", () => {
+    expect(canUseCurrentFace(null, T)).toBe(false);
+    expect(canUseCurrentFace({ ...baseFrame, liveTemplate: null }, T)).toBe(false);
+    expect(canUseCurrentFace({ ...baseFrame, numberOfFaces: 2 }, T)).toBe(false);
+    expect(canUseCurrentFace({ ...baseFrame, quality: 0.5 }, T)).toBe(false);
+    expect(canUseCurrentFace({ ...baseFrame, faceStatus: "liveness_unmeasured" }, T)).toBe(false);
+    expect(canUseCurrentFace({ ...baseFrame, livenessPassed: false }, T)).toBe(false);
   });
 });

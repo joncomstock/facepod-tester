@@ -157,3 +157,32 @@ export function guidanceForSnapshot(
   }
   return null; // face present but no live positioning → fall back to capture guidance
 }
+
+/** Live confidence (0–1) = 1 − spoofScore, so higher = more live (gauge-friendly). */
+export function livenessConfidence(spoofScore: number): number {
+  return 1 - spoofScore;
+}
+
+/** The confidence value a Liveness gauge passes at, derived from the max-spoof gate. */
+export function livenessConfidenceThreshold(maximalSpoofScore: number): number {
+  return 1 - maximalSpoofScore;
+}
+
+/**
+ * Strict gate for adopting the CURRENT live frame as a match reference: exactly one
+ * face, a finalized template, quality at/above the gate, and liveness measured AND
+ * passing. Prevents a stale/low-quality cached template from qualifying.
+ */
+export function canUseCurrentFace(
+  frame: CaptureFrame | null,
+  t: LiveThresholds,
+): boolean {
+  if (!frame) return false;
+  return (
+    frame.numberOfFaces === 1 &&
+    frame.liveTemplate != null &&
+    frame.quality >= t.minimalQuality &&
+    frame.faceStatus !== "liveness_unmeasured" &&
+    frame.livenessPassed === true
+  );
+}
