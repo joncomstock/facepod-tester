@@ -5,7 +5,7 @@ import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision, overlayFromFrame } from "../../live/overlayDisplay.ts";
-import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot } from "../../live/logic.ts";
+import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot, shouldAdoptSession } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
@@ -170,11 +170,12 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   // status refresh reports cameraOpen:false, which a recurring sync would re-adopt.
   useEffect(() => {
     if (adoptedRef.current || !status) return;
-    adoptedRef.current = true;
-    if (status.cameraOpen && scene === "idle") {
+    adoptedRef.current = true; // consider adoption exactly once, so End session can't re-adopt
+    if (shouldAdoptSession(status, scene)) {
       setScene("live");
       setWatching(false);
       setRestoredNotice(true); // tell the operator the session was restored, not freshly started
+      void onFetchParams?.(); // fetch device thresholds (safe: camera open, loop paused) — matches Go Live
     }
   }, [status, scene]);
 

@@ -186,3 +186,17 @@ export function canUseCurrentFace(
     frame.livenessPassed === true
   );
 }
+
+/**
+ * Should an already-open device session be adopted into the live HUD on load?
+ * True only when the backend reports an open camera and the HUD is still idle.
+ * The caller does this exactly once per mount (a ref), which is what keeps End
+ * session from bouncing back to live: it flips scene→idle before the async status
+ * refresh reports cameraOpen:false, and a repeated check would otherwise re-adopt.
+ */
+export function shouldAdoptSession(
+  status: { cameraOpen: boolean } | null,
+  scene: "idle" | "connecting" | "live",
+): boolean {
+  return !!status?.cameraOpen && scene === "idle";
+}

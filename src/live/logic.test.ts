@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame, livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace } from "./logic.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame, livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace, shouldAdoptSession } from "./logic.ts";
 import type { CaptureFrame, LiveSnapshotState, LiveThresholds } from "./types.ts";
 
 const snap = (over: Partial<LiveSnapshotState>): LiveSnapshotState => ({
@@ -247,5 +247,21 @@ describe("livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace", (
     expect(canUseCurrentFace({ ...baseFrame, quality: 0.5 }, T)).toBe(false);
     expect(canUseCurrentFace({ ...baseFrame, faceStatus: "liveness_unmeasured" }, T)).toBe(false);
     expect(canUseCurrentFace({ ...baseFrame, livenessPassed: false }, T)).toBe(false);
+  });
+});
+
+describe("shouldAdoptSession", () => {
+  it("adopts an open camera when the HUD is still idle", () => {
+    expect(shouldAdoptSession({ cameraOpen: true }, "idle")).toBe(true);
+  });
+  it("does not adopt when no session is open", () => {
+    expect(shouldAdoptSession({ cameraOpen: false }, "idle")).toBe(false);
+    expect(shouldAdoptSession(null, "idle")).toBe(false);
+  });
+  it("does not adopt once the HUD has left idle (connecting/live)", () => {
+    // The one-shot guard + this scene check are what stop End session — which flips
+    // scene→idle before the async status refresh clears cameraOpen — from re-adopting.
+    expect(shouldAdoptSession({ cameraOpen: true }, "connecting")).toBe(false);
+    expect(shouldAdoptSession({ cameraOpen: true }, "live")).toBe(false);
   });
 });
