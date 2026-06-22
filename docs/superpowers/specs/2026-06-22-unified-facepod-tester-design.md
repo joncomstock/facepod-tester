@@ -117,8 +117,15 @@ The **raw spoof score (lower-is-better)** remains inspectable as a number in Fra
 Liveness, labeled so its direction is unambiguous. This satisfies the review's real ask
 (direction defined explicitly, coloring/ticks consistent with it) without an inverted gauge.
 
-**Stale state:** when frames stop arriving (feed fps drops / snapshot age exceeds a
-threshold), gauges dim and show a "no signal" treatment rather than a stale value.
+**Freshness/stale state — two independent signals:**
+- **Video-stream freshness** (the feed): from the frame poll's fps / snapshot age.
+- **Capture-telemetry freshness** (the gauges + measured Frame Data): from the age of the
+  last watch-loop `CaptureFrame`.
+
+Treatment:
+- Watching **intentionally off** → gauges/feed read **"Paused"** (not an error/no-signal).
+- Watching **on** but the relevant stream has gone stale (no fresh frame past its threshold)
+  → dim + **"No signal"**, rather than showing a frozen value as if it were live.
 
 ### 5.4 Frame Data (grouped, scrollable)
 Same fields as today, but grouped under labeled sub-sections instead of one flat list, in
@@ -140,9 +147,14 @@ Stale handling mirrors §5.3 (dim + indicator when frames stop).
   - When **no reference**: `Set from photo…` (file upload) and `Use current face`.
   - When a **reference is set**: a **thumbnail/source chip** (photo thumbnail, or a "current
     face" label when captured from the live frame) plus **Replace** and **Clear**.
-  - `Use current face` is **disabled unless a usable live face is present** (a face in frame
-    at acceptable quality), with inline guidance ("Hold a face in view to use it as the
-    reference.").
+    **Replace** re-opens the photo picker; **Use current face** stays available alongside it,
+    so both reference sources remain reachable whether or not a reference already exists.
+  - **`Use current face` gate (strict):** enabled only when the **current** live frame is a
+    fresh, finalized capture with **exactly one face**, a **template present**,
+    **quality ≥ minimalQuality**, and liveness **measured and passing**. It captures *that*
+    frame's template — never an older cached `lastTemplate` — so a stale/low-quality template
+    can't qualify. When the gate fails, the control is disabled with inline guidance
+    ("Hold a single face in view at good quality to use it as the reference.").
   - Setting/replacing/clearing the reference updates the Match gauge and the feed verdict
     continuously.
 
@@ -152,9 +164,16 @@ only what was kept:
 - **Thresholds:** min Quality, max Spoof, min Match, capture timeout.
 - **Mock:** on/off toggle + scenario picker (good / low-quality / spoof / no-face / no-match /
   device-error).
-- **Apply semantics (explicit in the UI):** threshold and **scenario** changes apply
-  **immediately** (scenario via `api.setScenario` when connected); the **mock on/off** toggle
-  applies **"next time watching starts"** (it's a connect-time parameter).
+- **Apply semantics (explicit in the UI):**
+  - **Threshold** changes apply **immediately** to the running watch loop.
+  - **Scenario** changes apply **immediately only while connected in mock mode** (via
+    `api.setScenario`); otherwise the selection is stored and applies **next session**.
+  - The **mock on/off** toggle is a **connect-time** parameter, so it applies on the
+    **next session — after End session → Go Live** (toggling watch does not reconnect).
+- **Capture-timeout wiring:** `useWatchLoop` currently hard-codes a 1500 ms per-capture bound
+  (`useWatchLoop.ts:50`). It must instead consume the configured **capture timeout** (default
+  1500 ms when blank). Surface the caveat in the UI: a high value slows the watch loop's
+  responsiveness, since each capture waits up to that long.
 
 ## 6. State & data flow
 
@@ -165,8 +184,18 @@ only what was kept:
   are removed.
 - **Device parameters keep being fetched** in the background (they power the dashed "device"
   ticks); only the *raw dump panel* is removed.
-- Mock + scenario persist via the existing `connectionSettings` store; `goLive` reads it.
-- Threshold values feed `LiveView` exactly as today.
+- **Connection sends server defaults.** `goLive` **stops passing** UI-derived
+  `dllPath`/`dllDir`/`pollIntervalMs`; it sends only `{ mock, mockScenario }`. The persisted
+  `connectionSettings` shrinks to `{ mock, scenario }`, and the old
+  `dllPath`/`dllDir`/`pollIntervalMs` localStorage keys are **ignored/migrated** on load.
+  - **Risk flag:** today `CONNECTION_DEFAULTS.dllPath` is a hard-coded machine-specific path
+    (`…\FacePODDemo_MattWolfe\HidFace.dll`, `connectionSettings.ts:17`) and the kiosk
+    currently connects using it. Dropping it is only safe if the **server** supplies a DLL
+    default (env). Before removing it, confirm the server default exists; otherwise keep a
+    single baked-in DLL constant in the connection layer (not user-editable) rather than
+    breaking Go Live.
+- Mock + scenario persist via the (reduced) `connectionSettings` store; `goLive` reads it.
+- Threshold values (including the capture timeout, §5.6) feed `LiveView` / `useWatchLoop`.
 
 ## 7. What gets deleted
 
@@ -198,9 +227,9 @@ only what was kept:
   settings modal/bottom-sheet; mock scenario switching mid-session; stale state when the feed
   stops.
 
-## 10. Open deviation for sign-off
+## 10. Locked decisions / rationale
 
-- **Review point #4 (gauge direction):** implemented as "all gauges higher-is-better, with
-  Liveness = `1 − spoof` confidence and raw spoof shown as a Frame Data number," rather than a
-  downward Spoof gauge. Rationale in §5.3. Flag if you want the raw inverted Spoof gauge
-  instead.
+- **Gauge direction (approved):** all three gauges are higher-is-better; **Liveness =
+  `1 − spoofScore`** confidence rather than a downward "Spoof" gauge (a raw spoof of 0 = best
+  would render as an empty/failing bar). The raw spoof value stays inspectable as a number in
+  Frame Data → Liveness (§5.3 / §5.4). No inverted gauge.
