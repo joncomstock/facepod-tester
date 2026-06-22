@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type NormalizedError, type SessionStatus } from "../../api.ts";
-import { loadConnectionSettings } from "../../live/connectionSettings.ts";
+import { DLL_PATH, loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
@@ -91,11 +91,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setScene("connecting");
     try {
       const s = loadConnectionSettings();
-      const poll = s.pollIntervalMs.trim();
       await api.connect({
-        dllPath: s.dllPath.trim() || undefined,
-        dllDir: s.dllDir.trim() || undefined,
-        pollIntervalMs: poll === "" ? undefined : Number(poll),
+        dllPath: DLL_PATH, // baked-in (non-UI); preserves current Go Live behaviour
         mock: s.mock || undefined,
         mockScenario: s.scenario,
       });
