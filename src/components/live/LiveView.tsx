@@ -216,15 +216,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   return (
     <div className="live-shell live-grid">
-      <div className="live-feed">
+      <div className="live-left">
         <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} />
-        <p className="hint feed-note">
-          {guidanceDerived
-            ? "Guidance is derived in-UI from face size/status, not HID-measured."
-            : "Guidance is from the device's positioning feedback."}
-        </p>
-      </div>
-      <div className="live-stats">
         <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} />
         {deviceParams
           ? (
@@ -235,6 +228,13 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           : deviceParamsError
             ? <p className="hint">Device parameters unavailable: {deviceParamsError}</p>
             : null}
+        <p className="hint feed-note">
+          {guidanceDerived
+            ? "Guidance is derived in-UI from face size/status, not HID-measured."
+            : "Guidance is from the device's positioning feedback."}
+        </p>
+      </div>
+      <div className="live-right">
         <LiveDataDisclosure
           frame={frame}
           frameNat={frameNat}

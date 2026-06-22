@@ -534,32 +534,38 @@ details.json pre {
 /* ================= Live HUD ================= */
 .live-shell { display: flex; flex-direction: column; min-height: 60vh; }
 
-/* Two-pane live layout: feed (left) + readouts (right), dock spans the bottom.
-   Built for the 800×1280 portrait kiosk — the 9:16 feed only needs ~half the
-   width, so the stats sit beside it and feed + every stat fit without scrolling. */
+/* Two-pane live layout: feed + gauges (left, ~60%), Frame Data (right, own scroll). */
 .live-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) 1fr;
+  grid-template-columns: 3fr 2fr;
   gap: 16px 20px;
   align-items: start;
 }
+.live-grid .live-left { min-width: 0; display: flex; flex-direction: column; }
+.live-grid .live-right { min-width: 0; }
 .live-grid .live-dock { grid-column: 1 / -1; }
-.live-grid .live-stats { min-width: 0; }
-/* Feed sizes to the left column by its native 9:16 ratio (taller than the old
-   height-capped box, and no wasted side gutters). */
-.live-grid .feed { aspect-ratio: 9 / 16; height: auto; min-height: 0; max-height: none; margin: 0; }
-.live-grid .feed-note { margin: 8px 2px 0; }
+/* Feed keeps 9:16 but is height-capped so feed + gauges + dock fit the kiosk; it
+   centers in the column rather than stretching to ~60% width (which would be too tall). */
+.live-grid .feed {
+  aspect-ratio: 9 / 16; height: auto; min-height: 0; max-height: 52vh; max-width: 100%;
+  margin: 0 auto;
+}
 .live-grid .guide { font-size: 15px; padding: 9px 16px; bottom: 16px; }
 .live-grid .guide .ar { font-size: 17px; }
-/* Frame-data goes single-column in the narrower right pane (2-col would crush
-   wide rows like Bounding box / Template). */
-.live-grid .live-stats .fd-grid { grid-template-columns: 1fr; }
-.live-grid .framedata { margin-top: 14px; }
+.live-grid .feed-note { margin: 8px 2px 0; }
+/* Frame Data fills the right column and scrolls within its own height so a long
+   payload never compresses the feed/gauges. */
+.live-grid .framedata { margin: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
+.live-grid .live-right .fd-grid { grid-template-columns: 1fr; }
 
-/* Stack on small/phone widths; restore the centered, height-capped feed. */
+/* Narrow: stack Feed/gauges → dock → Frame Data; allow page scroll. */
 @media (max-width: 560px) {
   .live-grid { grid-template-columns: 1fr; }
-  .live-grid .feed { aspect-ratio: auto; height: 40vh; min-height: 260px; max-height: 420px; }
+  .live-grid .feed { aspect-ratio: auto; height: 40vh; min-height: 260px; max-height: 60vh; }
+  .live-grid .framedata { max-height: none; overflow: visible; }
+  .live-grid .live-left { order: 0; }
+  .live-grid .live-dock { order: 1; }
+  .live-grid .live-right { order: 2; }
 }
 
 /* Feed (hero viewfinder) */
