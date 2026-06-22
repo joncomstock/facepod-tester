@@ -128,9 +128,12 @@ Liveness, labeled so its direction is unambiguous. This satisfies the review's r
   last watch-loop `CaptureFrame`.
 
 Treatment:
-- Watching **intentionally off** → gauges/feed read **"Paused"** (not an error/no-signal).
-- Watching **on** but the relevant stream has gone stale (no fresh frame past its threshold)
-  → dim + **"No signal"**, rather than showing a frozen value as if it were live.
+- **Stop watching pauses both lanes.** The video poll *and* the capture loop gate on
+  `watching`, so the feed clears and reads **"Paused"** and the gauges + measured Frame Data
+  read **"Paused"** too. The camera stays open (only **End session** disconnects); **Start
+  watching** resumes both lanes.
+- Watching **on** but a stream has gone stale (no fresh frame past its threshold) → dim +
+  **"No signal"**, rather than showing a frozen value as if it were live.
 
 ### 5.4 Frame Data (grouped, scrollable)
 Same fields as today, but grouped under labeled sub-sections instead of one flat list, in
@@ -182,7 +185,7 @@ only what was kept:
 
 ## 6. State & data flow
 
-- `App.tsx` slims to: `status`, `error`, `busy`, threshold values (`minimalQuality`,
+- `App.tsx` slims to: `status`, `error`, threshold values (`minimalQuality`,
   `maximalSpoofScore`, `minimalMatchScore`, `timeoutMs`), mock settings, and
   `useDeviceParameters` (for the gauge device ticks). It renders: header (+ gear) →
   `LiveView` → Settings surface → error banner. The `mode` state and the `ManualView` branch

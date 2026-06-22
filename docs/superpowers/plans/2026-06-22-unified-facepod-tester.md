@@ -337,7 +337,7 @@ Expected: PASS (50 existing + new settings tests).
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/settings.ts src/settings.test.ts src/live/types.ts src/live/useWatchLoop.ts src/components/CapturePanel.tsx
+git add src/settings.ts src/settings.test.ts src/live/types.ts src/live/useWatchLoop.ts src/components/CapturePanel.tsx src/App.tsx
 git commit -m "refactor(settings): relocate thresholds type, wire configurable capture timeout"
 ```
 
@@ -444,7 +444,7 @@ export function SettingsModal(
             </label>
             <label className="field">
               <span>Scenario</span>
-              <select value={scenario} disabled={!mock} onChange={(e) => onScenarioChange(e.target.value as MockScenario)}>
+              <select value={scenario} disabled={!(mock || sessionMock)} onChange={(e) => onScenarioChange(e.target.value as MockScenario)}>
                 {MOCK_SCENARIOS.map((s) => <option key={s} value={s}>{SCENARIO_LABELS[s]}</option>)}
               </select>
             </label>
@@ -578,12 +578,14 @@ export function App() {
   // Persist mock/scenario; apply scenario live only while connected in mock mode.
   const onMockChange = useCallback((next: boolean) => {
     setMock(next);
-    saveConnectionSettings({ mock: next, scenario });
+    // Spread the current settings so this satisfies the connectionSettings type both before
+    // Task 6 (legacy dll/poll fields still required) and after (shrunk to {mock,scenario}).
+    saveConnectionSettings({ ...loadConnectionSettings(), mock: next, scenario });
   }, [scenario]);
 
   const onScenarioChange = useCallback((next: MockScenario) => {
     setScenario(next);
-    saveConnectionSettings({ mock, scenario: next });
+    saveConnectionSettings({ ...loadConnectionSettings(), mock, scenario: next });
     if (status?.connected && status?.mock) {
       api.setScenario(next).catch((e) =>
         setError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 })
@@ -1352,13 +1354,13 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
   const [videoFrameAt, setVideoFrameAt] = useState<number | null>(null); // last video frame
   const [now, setNow] = useState<number>(() => performance.now());
 ```
-3. Tick `now` every second while the live scene is up (video flows even when watching is paused), and stamp the last video frame:
+3. Gate the **video poll on `watching`** (so Stop watching pauses the feed, matching spec §5.3) — change the existing `useFramePoll({ active: scene === "live", ... })` call to `active: scene === "live" && watching`. Then tick `now` while watching (to detect a stalled stream) and stamp the last video frame:
 ```ts
   useEffect(() => {
-    if (scene !== "live") return;
+    if (!watching) return;
     const id = setInterval(() => setNow(performance.now()), 1000);
     return () => clearInterval(id);
-  }, [scene]);
+  }, [watching]);
   useEffect(() => { if (videoFrame) setVideoFrameAt(performance.now()); }, [videoFrame]);
 ```
 4. Record `frameAt` when a new capture frame arrives — extend the existing watch `onFrame`:
@@ -1370,7 +1372,7 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
   const captureAgeMs = frameAt == null ? null : now - frameAt;
   const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
   const captureStatus = telemetryStatus({ watching, captureAgeMs });
-  const feedStatus = videoStatus({ active: scene === "live", videoAgeMs });
+  const feedStatus = videoStatus({ active: scene === "live" && watching, videoAgeMs });
   // Eligible only when the capture lane is genuinely LIVE (not paused/stale) AND the
   // current frame passes the strict gate — a stalled good frame must not qualify.
   const currentFaceOk = captureStatus === "live" && canUseCurrentFace(frame, thresholds);
@@ -1420,8 +1422,16 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
     setRefLabel(null);
     setLastTemplate(null);
 ```
-11. **Feed badge** — in `src/components/live/Feed.tsx`, add `status?: import("../../live/freshness.ts").FreshnessStatus` to `Props`, destructure it (default `"live"`), and render after the verdict chip (before the `{guidance && ...}` block):
+11. **Feed badge + paused verdict** — in `src/components/live/Feed.tsx`, add `status?: import("../../live/freshness.ts").FreshnessStatus` to `Props`, destructure it (default `"live"`). (a) Render a badge after the verdict chip (before the `{guidance && ...}` block); (b) **gate the existing verdict chip on not-paused** — when watching stops, `frame` is cleared so the verdict defaults to "searching" and the chip would wrongly read "Watching…":
 ```tsx
+      {/* (b) wrap the existing verdict chip: */}
+      {status !== "paused" && (
+        <div className={`feed-verdict ${verdict.state}`}>
+          <span>{vlabel}</span>
+          {vreasons && <span className="vr">{vreasons}</span>}
+        </div>
+      )}
+      {/* (a) badge: */}
       {status !== "live" && (
         <div className={`feed-badge ${status}`}>{status === "paused" ? "Paused" : "No signal"}</div>
       )}
@@ -1456,7 +1466,7 @@ Expected: green. In the app: button reads "Start watching"/"Stop watching"; Matc
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/live/ActionDock.tsx src/components/live/LiveView.tsx src/styles.css
+git add src/components/live/ActionDock.tsx src/components/live/LiveView.tsx src/components/live/Feed.tsx src/styles.css
 git commit -m "feat(dock): reference thumbnail + Replace/Clear, gated Use-current-face, paused/stale wiring"
 ```
 
