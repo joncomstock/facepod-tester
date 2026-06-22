@@ -556,7 +556,6 @@ details.json pre {
 /* Frame Data fills the right column and scrolls within its own height so a long
    payload never compresses the feed/gauges. */
 .live-grid .framedata { margin: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
-.live-grid .live-right .fd-grid { grid-template-columns: 1fr; }
 
 /* Narrow: stack Feed/gauges → dock → Frame Data; allow page scroll. */
 @media (max-width: 560px) {
@@ -702,6 +701,16 @@ details.json pre {
   margin-top: 8px; padding-top: 8px; border-top: 1px solid hsl(var(--border) / 0.5); }
 .fd-wide .fd-v { font-size: 13px; font-weight: 600; word-break: break-word; text-align: right; }
 @media (max-width: 520px) { .fd-grid { grid-template-columns: 1fr; } }
+.fd-group { margin-top: 12px; }
+.fd-group:first-of-type { margin-top: 8px; }
+.fd-group.paused, .fd-group.stale { opacity: 0.55; }
+.fd-group-title {
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); padding-left: 8px; border-left: 2px solid hsl(var(--primary));
+  margin-bottom: 4px;
+}
+.fd-group-tag { font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; color: hsl(var(--muted-foreground)); margin-left: 6px; }
+.fd-rows { display: flex; flex-direction: column; }
 
 /* ---- 800×1280 portrait kiosk: the primary target ---- */
 @media (max-width: 840px) {
