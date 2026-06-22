@@ -1,11 +1,8 @@
 import type { CaptureResult, SessionStatus } from "../api.ts";
+import type { Thresholds } from "../settings.ts";
 import { JsonViewer } from "./JsonViewer.tsx";
 
-export interface CaptureThresholds {
-  minimalQuality: number;
-  maximalSpoofScore: number;
-  timeoutMs: string; // kept as string for an optional numeric input
-}
+export type CaptureThresholds = Thresholds;
 
 interface Props {
   status: SessionStatus | null;

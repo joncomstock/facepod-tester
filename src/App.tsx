@@ -41,6 +41,7 @@ export function App() {
   const [thresholds, setThresholds] = useState<CaptureThresholds>({
     minimalQuality: 0.7,
     maximalSpoofScore: 0.5,
+    minimalMatchScore: 0.7,
     timeoutMs: "",
   });
   const [minimalMatchScore, setMinimalMatchScore] = useState(0.7);
