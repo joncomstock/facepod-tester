@@ -19,10 +19,12 @@ interface Props {
 const DASH = "—";
 
 function Row({ k, v, tone }: { k: string; v: ReactNode; tone?: "ok" | "bad" | "muted" }) {
+  // Empty (em-dash) values default to muted so the no-face state reads calm, not a wall of bright dashes.
+  const cls = tone ?? (v === DASH ? "muted" : undefined);
   return (
     <div className="fd-row">
       <span className="fd-k">{k}</span>
-      <span className={`fd-v${tone ? " " + tone : ""}`}>{v}</span>
+      <span className={`fd-v${cls ? " " + cls : ""}`}>{v}</span>
     </div>
   );
 }
@@ -65,7 +67,7 @@ export function LiveDataDisclosure(
         />
         <Row
           k="Positioning"
-          v={fb ? `raw=${fb.raw} ok=${fb.ok} [${fb.flags.join(", ")}]${fb.unknownBits ? ` unknownBits=${fb.unknownBits}` : ""}` : "— (not reported by device)"}
+          v={fb ? `raw=${fb.raw} ok=${fb.ok} [${fb.flags.join(", ")}]${fb.unknownBits ? ` unknownBits=${fb.unknownBits}` : ""}` : DASH}
         />
       </Group>
 
@@ -76,7 +78,7 @@ export function LiveDataDisclosure(
       </Group>
 
       <Group title="Liveness" status={captureStatus}>
-        <Row k="Spoof score (lower is better)" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} />
+        <Row k="Spoof score" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} />
         <Row
           k="Liveness"
           v={!hasFace ? DASH : !livenessMeasured ? "n/a" : frame!.livenessPassed ? "PASS" : "FAIL"}

@@ -55,6 +55,7 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px 28px 72px;
+  overflow-x: clip; /* kiosk never scrolls horizontally; guards stray sub-pixel/abs-positioned overflow */
 }
 
 /* ---- Masthead ---- */
@@ -684,11 +685,11 @@ details.json pre {
   color: hsl(var(--muted-foreground)); margin-bottom: 8px; }
 .fd-sub { font-weight: 600; letter-spacing: 0; text-transform: none; opacity: .65; margin-left: 8px; }
 .fd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  padding: 5px 0; border-bottom: 1px solid hsl(var(--border) / 0.4); }
+  padding: 3px 0; border-bottom: 1px solid hsl(var(--border) / 0.4); }
 .fd-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); white-space: nowrap; }
-.fd-v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
-  color: hsl(var(--foreground)); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.fd-v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground)); text-align: right; min-width: 0; overflow-wrap: break-word; }
 .fd-v.ok { color: hsl(var(--success)); }
 .fd-v.bad { color: hsl(var(--destructive)); }
 .fd-v.muted { color: hsl(var(--muted-foreground)); }
