@@ -626,25 +626,27 @@ details.json pre {
 .feed-verdict .vr { font-size: 12px; font-weight: 600; letter-spacing: 0; opacity: .85; text-transform: none; }
 @keyframes pop { 0% { transform: translateX(-50%) scale(.94); } 60% { transform: translateX(-50%) scale(1.02); } 100% { transform: translateX(-50%) scale(1); } }
 
-/* Telemetry bars */
-.telem { display: flex; flex-direction: column; gap: 14px; margin: 14px 0 0; }
-.tm { display: grid; grid-template-columns: 110px 1fr 84px; align-items: center; gap: 14px; }
-.tm .name { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
-.track { position: relative; height: 18px; border-radius: 999px; background: hsl(var(--muted)); }
-.fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; transition: width .3s ease, background .3s;
-  background: hsl(var(--success)); box-shadow: 0 0 14px hsl(var(--success) / 0.5); }
-.fill.bad { background: hsl(var(--destructive)); box-shadow: 0 0 14px hsl(var(--destructive) / 0.5); }
-.fill.warn { background: hsl(var(--warning)); box-shadow: 0 0 14px hsl(var(--warning) / 0.5); }
-.thresh { position: absolute; top: -5px; bottom: -5px; width: 3px; border-radius: 2px; background: hsl(var(--foreground)); box-shadow: 0 0 0 2px hsl(var(--background)); }
-.thresh::after { content: attr(data-t); position: absolute; top: -19px; left: 50%; transform: translateX(-50%);
-  font-size: 10px; font-weight: 700; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.track .thresh-device { position: absolute; top: -5px; bottom: -5px; width: 0; border-left: 2px dashed hsl(var(--warning)); opacity: 0.8; }
-.track .thresh-device::after { content: "device"; position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
-  font-size: 9px; letter-spacing: 0.04em; color: hsl(var(--warning)); }
-.tm .val { text-align: right; font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.tm .val.ok { color: hsl(var(--success)); } .tm .val.bad { color: hsl(var(--destructive)); } .tm .val.warn { color: hsl(var(--warning)); }
-.tm .val.muted { color: hsl(var(--muted-foreground)); }
-.tm .val small { font-size: 13px; font-weight: 600; color: hsl(var(--muted-foreground)); }
+/* Telemetry gauges — header line over a full-width track (all higher-is-better) */
+.telem { display: flex; flex-direction: column; gap: 20px; margin-top: 14px; }
+.telem.paused, .telem.stale { opacity: 0.55; }
+.gauge { display: flex; flex-direction: column; gap: 6px; }
+.gauge-head { display: flex; align-items: baseline; justify-content: space-between; }
+.gauge-name { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+.gauge-val { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.gauge-val.ok { color: hsl(var(--success)); }
+.gauge-val.warn { color: hsl(var(--warning)); }
+.gauge-val.bad { color: hsl(var(--destructive)); }
+.gauge-val.muted { color: hsl(var(--muted-foreground)); font-size: 14px; font-weight: 700; }
+.gauge-val small { font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground)); }
+.gauge-track { position: relative; height: 14px; border-radius: 999px; background: hsl(var(--muted)); margin-bottom: 16px; }
+.gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: hsl(var(--success)); box-shadow: 0 0 12px hsl(var(--success) / .45); transition: width .3s ease, background .3s; }
+.gauge-fill.warn { background: hsl(var(--warning)); box-shadow: 0 0 12px hsl(var(--warning) / .45); }
+.gauge-fill.bad { background: hsl(var(--destructive)); box-shadow: 0 0 12px hsl(var(--destructive) / .45); }
+.gauge-thresh { position: absolute; top: -4px; bottom: -4px; width: 2px; background: hsl(var(--foreground)); box-shadow: 0 0 0 2px hsl(var(--background)); }
+.gauge-thresh span { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 700; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gauge-device { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed hsl(var(--warning)); opacity: .8; }
+.gauge-device span { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); font-size: 9px; letter-spacing: .04em; color: hsl(var(--warning)); }
+.telem-stale { margin-top: 2px; }
 
 /* Action dock */
 .dock { display: flex; align-items: center; gap: 14px; margin: 18px 0 4px; }
