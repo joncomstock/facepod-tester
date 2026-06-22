@@ -19,7 +19,7 @@ type Scene = "idle" | "connecting" | "live";
 interface Props {
   status: SessionStatus | null;
   thresholds: LiveThresholds;
-  onError: (e: NormalizedError) => void;
+  onError: (e: NormalizedError | null) => void;
   onSessionChange?: () => void;
   deviceParams?: import("../../api.ts").DeviceParameters | null;
   deviceParamsError?: string | null;
@@ -66,7 +66,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     active: watching && scene === "live",
     refTemplate,
     thresholds,
-    onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); },
+    onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); onError(null); },
     onError: (e) => {
       setWatching(false);
       onError(e);
@@ -106,6 +106,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [onFetchParams]);
 
   const goLive = useCallback(async () => {
+    onError(null); // clear any stale error pill immediately on retry
     setScene("connecting");
     try {
       const s = loadConnectionSettings();
