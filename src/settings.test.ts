@@ -11,3 +11,6 @@ test("parseTimeoutMs: numeric string → number", () => {
 test("parseTimeoutMs: non-numeric → undefined", () => {
   expect(parseTimeoutMs("abc")).toBeUndefined();
 });
+test("parseTimeoutMs: zero string → 0 (explicit disable, not blank)", () => {
+  expect(parseTimeoutMs("0")).toBe(0);
+});

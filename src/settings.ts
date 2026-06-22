@@ -1,5 +1,3 @@
-import type { MockScenario } from "./api.ts";
-
 /** All user-tunable gates, edited in the Settings modal. timeoutMs is kept as a
  *  string for the text input ("" = use the default). */
 export interface Thresholds {
@@ -23,5 +21,3 @@ export function parseTimeoutMs(timeoutMs: string): number | undefined {
   const n = Number(t);
   return Number.isFinite(n) ? n : undefined;
 }
-
-export type { MockScenario };
