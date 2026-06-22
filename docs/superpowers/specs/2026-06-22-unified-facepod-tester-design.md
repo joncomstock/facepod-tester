@@ -81,10 +81,15 @@ independently** so a long payload (e.g. many landmarks) never compresses the fee
 ## 5. Components
 
 ### 5.1 Header
-`▪ FacePod Tester` · state pill (`Disconnected`/`Connected`/`Camera Open`/`Busy`/`Error`,
-plus a mock tag when mock is on) · **⚙ gear** opening Settings. The Live/Manual toggle is
-deleted. Connection/camera status (the pill) is kept **visibly distinct** from watching
-status (the dock button label + the feed verdict chip).
+`▪ FacePod Tester` · state pill (`Disconnected`/`Connected`/`Camera Open`/`Error`) plus a
+mock tag when mock is on · **⚙ gear** opening Settings. The Live/Manual toggle is deleted.
+Connection/camera status (the pill) is kept **visibly distinct** from watching status (the
+dock button label + the feed verdict chip).
+
+**No "Busy" pill** (revised from the original list): the continuous watch loop holds the
+server's op lock almost constantly, so a Busy state would be permanently lit and meaningless.
+The brief connect transition is shown by LiveView's full-screen "Bringing the camera online…"
+scene instead.
 
 ### 5.2 Feed
 Unchanged from `f00e694` except sizing (§4): full live frame, bbox + landmark overlay, the
@@ -162,8 +167,8 @@ Stale handling mirrors §5.3 (dim + indicator when frames stop).
 A single surface — **centered modal on wide, bottom sheet on narrow (≤560px)** — containing
 only what was kept:
 - **Thresholds:** min Quality, max Spoof, min Match, capture timeout.
-- **Mock:** on/off toggle + scenario picker (good / low-quality / spoof / no-face / no-match /
-  device-error).
+- **Mock:** on/off toggle + scenario picker — all mock scenarios (good / low-quality / spoof /
+  no-face / no-match / device-error / approach).
 - **Apply semantics (explicit in the UI):**
   - **Threshold** changes apply **immediately** to the running watch loop.
   - **Scenario** changes apply **immediately only while connected in mock mode** (via
@@ -184,16 +189,16 @@ only what was kept:
   are removed.
 - **Device parameters keep being fetched** in the background (they power the dashed "device"
   ticks); only the *raw dump panel* is removed.
-- **Connection sends server defaults.** `goLive` **stops passing** UI-derived
-  `dllPath`/`dllDir`/`pollIntervalMs`; it sends only `{ mock, mockScenario }`. The persisted
-  `connectionSettings` shrinks to `{ mock, scenario }`, and the old
-  `dllPath`/`dllDir`/`pollIntervalMs` localStorage keys are **ignored/migrated** on load.
-  - **Risk flag:** today `CONNECTION_DEFAULTS.dllPath` is a hard-coded machine-specific path
-    (`…\FacePODDemo_MattWolfe\HidFace.dll`, `connectionSettings.ts:17`) and the kiosk
-    currently connects using it. Dropping it is only safe if the **server** supplies a DLL
-    default (env). Before removing it, confirm the server default exists; otherwise keep a
-    single baked-in DLL constant in the connection layer (not user-editable) rather than
-    breaking Go Live.
+- **Connection drops UI config.** `goLive` **stops passing** UI-derived
+  `dllPath`/`dllDir`/`pollIntervalMs`. The persisted `connectionSettings` shrinks to
+  `{ mock, scenario }`; the old `dllPath`/`dllDir`/`pollIntervalMs` localStorage keys are
+  **ignored/migrated** on load.
+  - **DLL path — baked-in constant (default approach):** the kiosk currently connects via the
+    hard-coded `…\FacePODDemo_MattWolfe\HidFace.dll` (`connectionSettings.ts:17`). To avoid
+    breaking Go Live, that path moves to a single **non-UI constant** in the connection layer
+    that `goLive` passes as `dllPath`. Behaviour is preserved — it's just no longer
+    user-editable. Dropping it to a true server-env default is an **optional follow-up** once
+    the server default is confirmed on-device; it is out of scope here.
 - Mock + scenario persist via the (reduced) `connectionSettings` store; `goLive` reads it.
 - Threshold values (including the capture timeout, §5.6) feed `LiveView` / `useWatchLoop`.
 

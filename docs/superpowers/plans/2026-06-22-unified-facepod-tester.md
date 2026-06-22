@@ -311,6 +311,19 @@ export type CaptureThresholds = Thresholds;
 
 Then remove the panel's own `export interface CaptureThresholds { ... }` declaration (search for it in the file) so there is a single definition. Leave the rest of the panel untouched (it is deleted in Task 5).
 
+Because `Thresholds` requires `minimalMatchScore`, the **existing** App initializer (typed `useState<CaptureThresholds>`) no longer satisfies the type — App isn't rewritten until Task 4, so fix the initializer now. In `src/App.tsx`, change it to include the field (the separate `minimalMatchScore` state stays until Task 4):
+
+```ts
+  const [thresholds, setThresholds] = useState<CaptureThresholds>({
+    minimalQuality: 0.7,
+    maximalSpoofScore: 0.5,
+    minimalMatchScore: 0.7,
+    timeoutMs: "",
+  });
+```
+
+If `npx tsc -b` flags any other `CaptureThresholds` object literal (e.g. a default inside `CapturePanel`), add `minimalMatchScore` there too.
+
 - [ ] **Step 7: Type-check**
 
 Run: `npx tsc -b`
@@ -348,6 +361,8 @@ interface SettingsModalProps {
   mock: boolean;
   scenario: import("../api.ts").MockScenario;
   connected: boolean;
+  /** The ACTIVE session's mock state (status.mock) — distinct from the desired `mock` toggle. */
+  sessionMock: boolean;
   onMockChange: (mock: boolean) => void;
   onScenarioChange: (s: import("../api.ts").MockScenario) => void;
 }
@@ -370,6 +385,7 @@ interface Props {
   mock: boolean;
   scenario: MockScenario;
   connected: boolean;
+  sessionMock: boolean;
   onMockChange: (mock: boolean) => void;
   onScenarioChange: (s: MockScenario) => void;
 }
@@ -393,7 +409,7 @@ function Num(
 
 /** Thresholds + mock/scenario. Centered modal on wide, bottom sheet on narrow (CSS). */
 export function SettingsModal(
-  { open, onClose, thresholds, onThresholdChange, mock, scenario, connected, onMockChange, onScenarioChange }: Props,
+  { open, onClose, thresholds, onThresholdChange, mock, scenario, connected, sessionMock, onMockChange, onScenarioChange }: Props,
 ) {
   if (!open) return null;
   return (
@@ -433,9 +449,9 @@ export function SettingsModal(
               </select>
             </label>
             <p className="hint">
-              {mock
-                ? (connected ? "Scenario applies immediately. " : "Scenario applies next session. ")
-                : ""}
+              {connected && sessionMock
+                ? "Scenario applies immediately. "
+                : "Scenario applies next session. "}
               Mock on/off applies next session — after End session → Go Live.
             </p>
           </div>
@@ -527,6 +543,9 @@ import { SettingsModal } from "./components/SettingsModal.tsx";
 import { useDeviceParameters } from "./live/useDeviceParameters.ts";
 import { loadConnectionSettings, saveConnectionSettings } from "./live/connectionSettings.ts";
 
+// No "Busy" state (spec §5.1, revised): the continuous watch loop holds the server's op
+// lock almost constantly, so a Busy pill would be permanently lit. The connect transition
+// is shown by LiveView's full-screen "Bringing the camera online…" scene.
 function statePill(status: SessionStatus | null, error: NormalizedError | null) {
   if (error) return { cls: "state-error", label: "Error" };
   if (status?.cameraOpen) return { cls: "state-camera", label: "Camera Open" };
@@ -628,6 +647,7 @@ export function App() {
         mock={mock}
         scenario={scenario}
         connected={!!status?.connected}
+        sessionMock={!!status?.mock}
         onMockChange={onMockChange}
         onScenarioChange={onScenarioChange}
       />
@@ -651,7 +671,7 @@ Expected: exit 0. `ManualView` is now unreferenced (deleted next task); `Capture
 
 - [ ] **Step 4: Run tests + dev smoke**
 
-Run: `npm test` → PASS. Then `npm run dev`, load the app: header shows title · pill · gear; no Live/Manual tabs; gear opens Settings; Go Live still works (mock on if toggled). 
+Run: `npm test` → PASS. Then `npm run dev`, load the app: header shows title · pill · gear; no Live/Manual tabs; gear opens Settings; Go Live still works (mock on if toggled).
 
 - [ ] **Step 5: Commit**
 
@@ -744,6 +764,13 @@ export interface ConnectionSettings {
 
 export const CONNECTION_DEFAULTS: ConnectionSettings = { mock: false, scenario: "good" };
 
+/**
+ * Baked-in DLL location for the kiosk (NOT user-editable). `goLive` passes this so Go Live
+ * keeps working exactly as before, just without UI config. Optional follow-up: once the
+ * server env supplies a DLL default, drop this and the `dllPath` arg.
+ */
+export const DLL_PATH = "C:\\Users\\Facepod\\Desktop\\FacePODDemo_MattWolfe\\HidFace.dll";
+
 /** Pure: parse stored JSON → settings, dropping legacy dllPath/dllDir/pollIntervalMs. */
 export function migrateConnectionSettings(raw: string | null): ConnectionSettings {
   if (!raw) return { ...CONNECTION_DEFAULTS };
@@ -775,11 +802,12 @@ export function saveConnectionSettings(s: ConnectionSettings): void {
 
 - [ ] **Step 4: `goLive` sends server defaults only**
 
-In `src/components/live/LiveView.tsx` `goLive`, replace the connect block (lines ~94-102):
+In `src/components/live/LiveView.tsx`, add `DLL_PATH` to the `connectionSettings` import, then in `goLive` replace the connect block (lines ~94-102):
 
 ```ts
       const s = loadConnectionSettings();
       await api.connect({
+        dllPath: DLL_PATH, // baked-in (non-UI); preserves current Go Live behaviour
         mock: s.mock || undefined,
         mockScenario: s.scenario,
       });
@@ -788,7 +816,7 @@ In `src/components/live/LiveView.tsx` `goLive`, replace the connect block (lines
 
 Remove the now-unused `poll`/`dllPath`/`dllDir` locals.
 
-> **RISK FLAG (verify on-device, do not skip):** the kiosk previously connected using the baked-in `…\FacePODDemo_MattWolfe\HidFace.dll` path. After this change, `goLive` relies on the **server's** DLL default. On the device, confirm Go Live still reaches `CAMERA OPEN`. If it errors with a DLL-not-found, do **not** restore the UI field — instead add a single non-UI constant `const DLL_PATH = "…HidFace.dll"` in the connection layer and pass `dllPath: DLL_PATH`. Record which path was taken in the commit message.
+> **Behaviour preserved — safe to commit without the device.** `goLive` still passes the working DLL path, now as the non-UI `DLL_PATH` constant, so Go Live behaves exactly as before — it's just no longer user-editable. **Optional follow-up (NOT this task):** once you confirm on-device that the kiosk server has its own DLL env default, drop `dllPath: DLL_PATH` to use it and delete the constant.
 
 - [ ] **Step 5: Type-check + tests**
 
@@ -799,7 +827,7 @@ Expected: green.
 
 ```bash
 git add src/live/connectionSettings.ts src/live/connectionSettings.test.ts src/components/live/LiveView.tsx
-git commit -m "refactor(connection): server-default connect; shrink connectionSettings to {mock,scenario}"
+git commit -m "refactor(connection): drop UI connection config; baked-in DLL constant; shrink connectionSettings to {mock,scenario}"
 ```
 
 ---
@@ -895,6 +923,7 @@ export function Telemetry(
         deviceThreshold={deviceParams?.recMinMatchScoreL1}
         emptyLabel={hasReference ? "—" : "No reference"}
       />
+      {status === "paused" && <p className="hint telem-stale">Paused — start watching to resume.</p>}
       {status === "stale" && <p className="hint telem-stale">No signal — waiting for frames…</p>}
     </div>
   );
@@ -1089,7 +1118,10 @@ interface Props {
   brightness: number | null;
   distance: "near" | "ok" | "far" | null;
   hasReference: boolean;
-  status?: FreshnessStatus;
+  /** Capture-lane freshness — drives Face/Capture/Liveness/Match groups. */
+  captureStatus?: FreshnessStatus;
+  /** Video-lane freshness — drives the Stream group. */
+  videoStatus?: FreshnessStatus;
 }
 
 const DASH = "—";
@@ -1103,10 +1135,13 @@ function Row({ k, v, tone }: { k: string; v: ReactNode; tone?: "ok" | "bad" | "m
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+function Group(
+  { title, status = "live", children }: { title: string; status?: FreshnessStatus; children: ReactNode },
+) {
+  const tag = status === "paused" ? " · paused" : status === "stale" ? " · no signal" : "";
   return (
-    <div className="fd-group">
-      <div className="fd-group-title">{title}</div>
+    <div className={`fd-group ${status}`}>
+      <div className="fd-group-title">{title}<span className="fd-group-tag">{tag}</span></div>
       <div className="fd-rows">{children}</div>
     </div>
   );
@@ -1114,7 +1149,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 /** Always-visible, grouped surface of the live device + API output. */
 export function LiveDataDisclosure(
-  { frame, frameNat, videoDatatype, fps, brightness, distance, hasReference, status = "live" }: Props,
+  { frame, frameNat, videoDatatype, fps, brightness, distance, hasReference, captureStatus = "live", videoStatus = "live" }: Props,
 ) {
   const bb = frame?.boundingBox ?? null;
   const fb = frame?.positioningFeedback ?? null;
@@ -1123,12 +1158,12 @@ export function LiveDataDisclosure(
   const livenessMeasured = hasFace && frame!.faceStatus !== "liveness_unmeasured";
 
   return (
-    <section className={`framedata ${status}`}>
+    <section className="framedata">
       <div className="fd-title">
         Frame data <span className="fd-sub">live device + API output</span>
       </div>
 
-      <Group title="Face">
+      <Group title="Face" status={captureStatus}>
         <Row k="Faces" v={frame ? frame.numberOfFaces : DASH} />
         <Row k="Face status" v={frame?.faceStatus ?? DASH} />
         <Row k="Bounding box" v={bb ? `x ${bb.x}, y ${bb.y}, ${bb.width}×${bb.height}` : DASH} />
@@ -1142,13 +1177,13 @@ export function LiveDataDisclosure(
         />
       </Group>
 
-      <Group title="Capture">
+      <Group title="Capture" status={captureStatus}>
         <Row k="Captured" v={frame ? (frame.isCaptured ? "yes" : "no") : DASH} tone={frame ? (frame.isCaptured ? "ok" : "bad") : "muted"} />
         <Row k="Quality" v={frame ? frame.quality.toFixed(3) : DASH} />
         <Row k="Template" v={frame?.liveTemplate ? `present · ${frame.liveTemplate.length} b64` : DASH} />
       </Group>
 
-      <Group title="Liveness">
+      <Group title="Liveness" status={captureStatus}>
         <Row k="Spoof score (lower is better)" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} />
         <Row
           k="Liveness"
@@ -1157,7 +1192,7 @@ export function LiveDataDisclosure(
         />
       </Group>
 
-      <Group title="Match">
+      <Group title="Match" status={captureStatus}>
         <Row k="Match score" v={hasReference && frame?.matchScore != null ? frame.matchScore.toFixed(3) : DASH} />
         <Row
           k="Match"
@@ -1166,7 +1201,7 @@ export function LiveDataDisclosure(
         />
       </Group>
 
-      <Group title="Stream">
+      <Group title="Stream" status={videoStatus}>
         <Row k="Frame size" v={frameNat ? `${frameNat.w}×${frameNat.h}` : DASH} />
         <Row k="Frame type" v={videoDatatype ?? DASH} />
         <Row k="Feed rate" v={fps != null ? `${fps.toFixed(1)} fps` : DASH} />
@@ -1183,14 +1218,15 @@ export function LiveDataDisclosure(
 In `src/styles.css`, the old `.fd-grid`/`.fd-wide` rules are no longer produced. Add:
 
 ```css
-.framedata.paused, .framedata.stale { opacity: 0.6; }
 .fd-group { margin-top: 12px; }
 .fd-group:first-of-type { margin-top: 8px; }
+.fd-group.paused, .fd-group.stale { opacity: 0.55; }
 .fd-group-title {
   font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); padding-left: 8px; border-left: 2px solid hsl(var(--primary));
   margin-bottom: 4px;
 }
+.fd-group-tag { font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; color: hsl(var(--muted-foreground)); margin-left: 6px; }
 .fd-rows { display: flex; flex-direction: column; }
 ```
 
@@ -1216,8 +1252,9 @@ Upgrade the dock reference control (thumbnail/source + Replace + Clear; single s
 
 **Files:**
 - Modify: `src/components/live/ActionDock.tsx`
-- Modify: `src/components/live/LiveView.tsx` (reference source state; capture-age tick; pass `status`)
-- Modify: `src/styles.css` (`.refchip` thumbnail bits)
+- Modify: `src/components/live/LiveView.tsx` (reference source state; two-lane freshness tick; status wiring)
+- Modify: `src/components/live/Feed.tsx` (status badge)
+- Modify: `src/styles.css` (`.ref-*` + `.feed-badge` bits)
 
 **Interfaces:**
 - Consumes: `canUseCurrentFace` (Task 1), `telemetryStatus` (Task 1).
@@ -1275,7 +1312,8 @@ export function ActionDock(
                 ? <img className="ref-thumb" src={referenceThumb} alt="reference" />
                 : <span className="ref-thumb ref-thumb-face" aria-hidden>☺</span>}
               <span className="ref-src">{referenceLabel}</span>
-              <button className="link-btn" onClick={() => fileRef.current?.click()}>Replace</button>
+              <button className="link-btn" onClick={() => fileRef.current?.click()}>Replace photo</button>
+              <button className="link-btn" disabled={!canUseCurrentFace} onClick={onUseCurrentFace}>Use current face</button>
               <button className="link-btn" onClick={onClearReference}>Clear</button>
             </div>
           )
@@ -1297,60 +1335,71 @@ export function ActionDock(
 }
 ```
 
-- [ ] **Step 2: LiveView — reference source state, gate, freshness, status wiring**
+- [ ] **Step 2: LiveView — reference state, two-lane freshness, gate, status wiring**
 
 In `src/components/live/LiveView.tsx`:
 
 1. Add imports:
 ```ts
 import { canUseCurrentFace } from "../../live/logic.ts";
-import { telemetryStatus } from "../../live/freshness.ts";
+import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
 ```
 2. Add state (near the other `useState`s):
 ```ts
   const [refThumb, setRefThumb] = useState<string | null>(null);
   const [refLabel, setRefLabel] = useState<string | null>(null);
-  const [frameAt, setFrameAt] = useState<number | null>(null);
+  const [frameAt, setFrameAt] = useState<number | null>(null);          // last capture frame
+  const [videoFrameAt, setVideoFrameAt] = useState<number | null>(null); // last video frame
   const [now, setNow] = useState<number>(() => performance.now());
 ```
-3. Tick `now` while watching (add an effect):
+3. Tick `now` every second while the live scene is up (video flows even when watching is paused), and stamp the last video frame:
 ```ts
   useEffect(() => {
-    if (!watching) return;
+    if (scene !== "live") return;
     const id = setInterval(() => setNow(performance.now()), 1000);
     return () => clearInterval(id);
-  }, [watching]);
+  }, [scene]);
+  useEffect(() => { if (videoFrame) setVideoFrameAt(performance.now()); }, [videoFrame]);
 ```
-4. Record `frameAt` when a new frame arrives — extend the existing watch `onFrame`:
+4. Record `frameAt` when a new capture frame arrives — extend the existing watch `onFrame`:
 ```ts
     onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); if (f.liveTemplate) setLastTemplate(f.liveTemplate); },
 ```
-5. Compute status + gate (near `const hasReference = ...`):
+5. Compute the two freshness signals + the status-gated current-face check (near `const hasReference = ...`):
 ```ts
   const captureAgeMs = frameAt == null ? null : now - frameAt;
-  const status = telemetryStatus({ watching, captureAgeMs });
-  const currentFaceOk = canUseCurrentFace(frame, thresholds);
+  const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
+  const captureStatus = telemetryStatus({ watching, captureAgeMs });
+  const feedStatus = videoStatus({ active: scene === "live", videoAgeMs });
+  // Eligible only when the capture lane is genuinely LIVE (not paused/stale) AND the
+  // current frame passes the strict gate — a stalled good frame must not qualify.
+  const currentFaceOk = captureStatus === "live" && canUseCurrentFace(frame, thresholds);
 ```
 6. Update `pickReference` to also store the thumbnail/source. In its body, after `setRefTemplate(r.result.template.data);`, add:
 ```ts
       setRefThumb(`data:image/${read.datatype === "jpg" ? "jpeg" : read.datatype};base64,${read.data}`);
       setRefLabel("Photo");
 ```
-7. Update `useCurrentFace` to use the CURRENT frame's template and label it:
+7. Update `useCurrentFace` to re-check the gate (incl. live status) and adopt the CURRENT frame's template:
 ```ts
   const useCurrentFace = useCallback(() => {
-    if (frame?.liveTemplate) { setRefTemplate(frame.liveTemplate); setRefThumb(null); setRefLabel("Current face"); }
-  }, [frame]);
+    if (captureStatus === "live" && canUseCurrentFace(frame, thresholds) && frame?.liveTemplate) {
+      setRefTemplate(frame.liveTemplate);
+      setRefThumb(null);
+      setRefLabel("Current face");
+    }
+  }, [frame, thresholds, captureStatus]);
 ```
 8. Clear reference resets the chip — change the dock's `onClearReference`:
 ```ts
         onClearReference={() => { setRefTemplate(null); setRefThumb(null); setRefLabel(null); }}
 ```
-9. Pass `status` to Telemetry and Frame Data, and the new dock props:
+9. Pass the two statuses to the Feed, Telemetry, and Frame Data, and the new dock props:
 ```tsx
-        <Telemetry ... status={status} />
+        <Feed ... status={feedStatus} />
+        <Telemetry ... status={captureStatus} />
         ...
-        <LiveDataDisclosure ... status={status} />
+        <LiveDataDisclosure ... captureStatus={captureStatus} videoStatus={feedStatus} />
         ...
         <ActionDock
           watching={watching}
@@ -1371,6 +1420,12 @@ import { telemetryStatus } from "../../live/freshness.ts";
     setRefLabel(null);
     setLastTemplate(null);
 ```
+11. **Feed badge** — in `src/components/live/Feed.tsx`, add `status?: import("../../live/freshness.ts").FreshnessStatus` to `Props`, destructure it (default `"live"`), and render after the verdict chip (before the `{guidance && ...}` block):
+```tsx
+      {status !== "live" && (
+        <div className={`feed-badge ${status}`}>{status === "paused" ? "Paused" : "No signal"}</div>
+      )}
+```
 
 - [ ] **Step 3: Reference-chip styles**
 
@@ -1382,6 +1437,15 @@ Append to `src/styles.css`:
 .ref-thumb-face { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; background: hsl(var(--muted)); color: hsl(var(--primary)); }
 .ref-src { font-size: 13px; font-weight: 700; color: hsl(var(--success)); }
 .ref-hint { font-size: 11px; color: hsl(var(--muted-foreground)); }
+/* Feed status badge (top-right) for paused / no-signal video lane. */
+.feed-badge {
+  position: absolute; top: 14px; right: 14px; z-index: 3;
+  padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  background: hsl(0 0% 0% / 0.55); border: 1px solid hsl(var(--border)); backdrop-filter: blur(6px);
+  color: hsl(var(--muted-foreground));
+}
+.feed-badge.stale { color: hsl(var(--warning)); border-color: hsl(var(--warning) / 0.5); }
 ```
 
 - [ ] **Step 4: Type-check + tests + dev smoke**
@@ -1432,4 +1496,4 @@ git push origin feature/live-hud-fixes
 
 **Placeholder scan:** none — every code step shows the code; CSS values flagged as tune-on-device are concrete, not placeholders.
 
-**Type consistency:** `Thresholds` (string `timeoutMs`) is the UI/App type; `LiveThresholds` (numeric optional `timeoutMs`) is the live type; App bridges via `parseTimeoutMs`. `FreshnessStatus` shared by `freshness.ts`, Telemetry, LiveDataDisclosure. `ActionDock` prop rename (`referenceThumb`/`referenceLabel`/`canUseCurrentFace`) is consistent between Task 10's interface block, component, and the LiveView call site.
+**Type consistency:** `Thresholds` (string `timeoutMs`) is the UI/App type; `LiveThresholds` (numeric optional `timeoutMs`) is the live type; App bridges via `parseTimeoutMs`. `FreshnessStatus` is shared by `freshness.ts`, Telemetry (`status`), Feed (`status`), and LiveDataDisclosure (`captureStatus` + `videoStatus`); LiveView computes `captureStatus` (capture lane) and `feedStatus` (video lane) and passes them by name — Telemetry/Feed get the matching lane, LiveDataDisclosure gets both. `ActionDock` prop set (`referenceThumb`/`referenceLabel`/`canUseCurrentFace` + `onUseCurrentFace` in both reference branches) is consistent between Task 10's interface block, component, and the LiveView call site. App's `SessionStatus` (the `status` prop on LiveView/the pill) is distinct from `FreshnessStatus`.
