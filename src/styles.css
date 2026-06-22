@@ -533,23 +533,25 @@ details.json pre {
 .live-grid .live-left { min-width: 0; display: flex; flex-direction: column; }
 .live-grid .live-right { min-width: 0; }
 .live-grid .live-dock { grid-column: 1 / -1; }
-/* Feed keeps 9:16 but is height-capped so feed + gauges + dock fit the kiosk; it
-   centers in the column rather than stretching to ~60% width (which would be too tall). */
+/* Feed: definite height + aspect-derived width, centered in the flex column via
+   align-self — NOT auto margins, which collapse a flex item whose children are all
+   absolutely positioned (it would shrink to 0×0). 9:16 box → image fills, no gutters. */
 .live-grid .feed {
-  aspect-ratio: 9 / 16; height: auto; min-height: 0; max-height: 52vh; max-width: 100%;
-  margin: 0 auto;
+  height: 40vh; min-height: 0; max-height: none;
+  aspect-ratio: 9 / 16; width: auto; max-width: 100%;
+  align-self: center; margin: 0;
 }
 .live-grid .guide { font-size: 15px; padding: 9px 16px; bottom: 16px; }
 .live-grid .guide .ar { font-size: 17px; }
 .live-grid .feed-note { margin: 8px 2px 0; }
-/* Frame Data fills the right column and scrolls within its own height so a long
-   payload never compresses the feed/gauges. */
-.live-grid .framedata { margin: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
+/* Frame Data flows naturally in the right column (no internal scrollbar); the grid row
+   height is driven by the taller feed+gauges column. */
+.live-grid .framedata { margin: 0; }
 
 /* Narrow: stack Feed/gauges → dock → Frame Data; allow page scroll. */
 @media (max-width: 560px) {
   .live-grid { grid-template-columns: 1fr; }
-  .live-grid .feed { aspect-ratio: auto; height: 40vh; min-height: 260px; max-height: 60vh; }
+  .live-grid .feed { aspect-ratio: auto; width: auto; align-self: stretch; height: 40vh; min-height: 260px; max-height: 60vh; }
   .live-grid .framedata { max-height: none; overflow: visible; }
   .live-grid .live-left { order: 0; }
   .live-grid .live-dock { order: 1; }
@@ -686,7 +688,7 @@ details.json pre {
 .fd-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); white-space: nowrap; }
 .fd-v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
-  color: hsl(var(--foreground)); text-align: right; }
+  color: hsl(var(--foreground)); text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .fd-v.ok { color: hsl(var(--success)); }
 .fd-v.bad { color: hsl(var(--destructive)); }
 .fd-v.muted { color: hsl(var(--muted-foreground)); }
