@@ -58,8 +58,9 @@
   - `livenessConfidence(spoofScore: number): number`
   - `livenessConfidenceThreshold(maximalSpoofScore: number): number`
   - `canUseCurrentFace(frame: CaptureFrame | null, t: LiveThresholds): boolean`
-  - `telemetryStatus(i: { watching: boolean; captureAgeMs: number | null; staleAfterMs?: number }): "live" | "paused" | "stale"`
-  - `videoStatus(i: { active: boolean; videoAgeMs: number | null; staleAfterMs?: number }): "live" | "paused" | "stale"`
+  - `captureStaleMs(timeoutMs: number | undefined): number`
+  - `telemetryStatus(i: { watching: boolean; captureAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number }): "live" | "paused" | "stale"`
+  - `videoStatus(i: { active: boolean; videoAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number }): "live" | "paused" | "stale"`
 
 - [ ] **Step 1: Write failing tests for the logic helpers**
 
@@ -141,20 +142,30 @@ export function canUseCurrentFace(
 Create `src/live/freshness.test.ts`:
 
 ```ts
-import { telemetryStatus, videoStatus } from "./freshness.ts";
+import { captureStaleMs, telemetryStatus, videoStatus } from "./freshness.ts";
 
 test("telemetryStatus: not watching → paused", () => {
-  expect(telemetryStatus({ watching: false, captureAgeMs: 10 })).toBe("paused");
+  expect(telemetryStatus({ watching: false, captureAgeMs: 10, sinceStartMs: null })).toBe("paused");
 });
-test("telemetryStatus: watching, fresh → live; watching, old/none → stale", () => {
-  expect(telemetryStatus({ watching: true, captureAgeMs: 200 })).toBe("live");
-  expect(telemetryStatus({ watching: true, captureAgeMs: 9999 })).toBe("stale");
-  expect(telemetryStatus({ watching: true, captureAgeMs: null })).toBe("stale");
+test("telemetryStatus: warming up (no frame yet, within grace) → live, not a false No-signal", () => {
+  expect(telemetryStatus({ watching: true, captureAgeMs: null, sinceStartMs: 200, staleAfterMs: 3000 })).toBe("live");
 });
-test("videoStatus: inactive → paused; active+fresh → live; active+stale → stale", () => {
-  expect(videoStatus({ active: false, videoAgeMs: 10 })).toBe("paused");
-  expect(videoStatus({ active: true, videoAgeMs: 200 })).toBe("live");
-  expect(videoStatus({ active: true, videoAgeMs: 9999 })).toBe("stale");
+test("telemetryStatus: no frame past grace → stale", () => {
+  expect(telemetryStatus({ watching: true, captureAgeMs: null, sinceStartMs: 99999, staleAfterMs: 3000 })).toBe("stale");
+});
+test("telemetryStatus: fresh frame → live; old frame past threshold → stale", () => {
+  expect(telemetryStatus({ watching: true, captureAgeMs: 100, sinceStartMs: 5000, staleAfterMs: 3000 })).toBe("live");
+  expect(telemetryStatus({ watching: true, captureAgeMs: 99999, sinceStartMs: 99999, staleAfterMs: 3000 })).toBe("stale");
+});
+test("videoStatus: inactive → paused; warming up → live; stalled (non-throwing) → stale", () => {
+  expect(videoStatus({ active: false, videoAgeMs: 10, sinceStartMs: null })).toBe("paused");
+  expect(videoStatus({ active: true, videoAgeMs: null, sinceStartMs: 100 })).toBe("live");
+  // A stalled-but-not-erroring stream is the real "No signal" case (not a hardware unplug).
+  expect(videoStatus({ active: true, videoAgeMs: 9999, sinceStartMs: 9999 })).toBe("stale");
+});
+test("captureStaleMs scales with the configured capture timeout (+ margin)", () => {
+  expect(captureStaleMs(undefined)).toBe(3000);
+  expect(captureStaleMs(4000)).toBe(5500);
 });
 ```
 
@@ -173,24 +184,44 @@ export type FreshnessStatus = "live" | "paused" | "stale";
 
 const DEFAULT_STALE_MS = 2500;
 
-/** Capture-telemetry freshness (the gauges + measured Frame Data). */
+/**
+ * Capture-lane stale threshold derived from the configurable capture timeout: a single
+ * capture can take up to timeoutMs, plus a match + loop-interval + processing margin. A
+ * fixed window would wrongly flag a normal long capture as stale.
+ */
+export function captureStaleMs(timeoutMs: number | undefined): number {
+  return (timeoutMs ?? 1500) + 1500;
+}
+
+/**
+ * Capture-telemetry freshness (gauges + measured Frame Data). A just-(re)started watch with
+ * no frame yet is "live" during the grace window — not a false "stale" — and the caller must
+ * reset the age timestamp on start so a leftover age can't trip it. graceMs defaults to the
+ * stale window.
+ */
 export function telemetryStatus(
-  i: { watching: boolean; captureAgeMs: number | null; staleAfterMs?: number },
+  i: { watching: boolean; captureAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number },
 ): FreshnessStatus {
   if (!i.watching) return "paused";
   const stale = i.staleAfterMs ?? DEFAULT_STALE_MS;
-  if (i.captureAgeMs == null || i.captureAgeMs > stale) return "stale";
-  return "live";
+  const grace = i.graceMs ?? stale;
+  if (i.captureAgeMs == null) {
+    return i.sinceStartMs != null && i.sinceStartMs <= grace ? "live" : "stale";
+  }
+  return i.captureAgeMs > stale ? "stale" : "live";
 }
 
-/** Video-stream freshness (the feed). */
+/** Video-stream freshness (the feed). Same grace treatment on (re)start. */
 export function videoStatus(
-  i: { active: boolean; videoAgeMs: number | null; staleAfterMs?: number },
+  i: { active: boolean; videoAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number },
 ): FreshnessStatus {
   if (!i.active) return "paused";
   const stale = i.staleAfterMs ?? DEFAULT_STALE_MS;
-  if (i.videoAgeMs == null || i.videoAgeMs > stale) return "stale";
-  return "live";
+  const grace = i.graceMs ?? stale;
+  if (i.videoAgeMs == null) {
+    return i.sinceStartMs != null && i.sinceStartMs <= grace ? "live" : "stale";
+  }
+  return i.videoAgeMs > stale ? "stale" : "live";
 }
 ```
 
@@ -1344,7 +1375,7 @@ In `src/components/live/LiveView.tsx`:
 1. Add imports:
 ```ts
 import { canUseCurrentFace } from "../../live/logic.ts";
-import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
+import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
 ```
 2. Add state (near the other `useState`s):
 ```ts
@@ -1352,6 +1383,7 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
   const [refLabel, setRefLabel] = useState<string | null>(null);
   const [frameAt, setFrameAt] = useState<number | null>(null);          // last capture frame
   const [videoFrameAt, setVideoFrameAt] = useState<number | null>(null); // last video frame
+  const [watchStartedAt, setWatchStartedAt] = useState<number | null>(null); // for the startup grace
   const [now, setNow] = useState<number>(() => performance.now());
 ```
 3. Gate the **video poll on `watching`** (so Stop watching pauses the feed, matching spec §5.3) — change the existing `useFramePoll({ active: scene === "live", ... })` call to `active: scene === "live" && watching`. Then tick `now` while watching (to detect a stalled stream) and stamp the last video frame:
@@ -1362,6 +1394,12 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
     return () => clearInterval(id);
   }, [watching]);
   useEffect(() => { if (videoFrame) setVideoFrameAt(performance.now()); }, [videoFrame]);
+  // On (re)start, reset both lane timestamps and stamp the start, so the grace window
+  // applies and a leftover/null age can't flash "No signal" immediately.
+  useEffect(() => {
+    if (watching) { setFrameAt(null); setVideoFrameAt(null); setWatchStartedAt(performance.now()); }
+    else { setWatchStartedAt(null); }
+  }, [watching]);
 ```
 4. Record `frameAt` when a new capture frame arrives — extend the existing watch `onFrame`:
 ```ts
@@ -1371,8 +1409,11 @@ import { telemetryStatus, videoStatus } from "../../live/freshness.ts";
 ```ts
   const captureAgeMs = frameAt == null ? null : now - frameAt;
   const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
-  const captureStatus = telemetryStatus({ watching, captureAgeMs });
-  const feedStatus = videoStatus({ active: scene === "live" && watching, videoAgeMs });
+  const sinceStartMs = watchStartedAt == null ? null : now - watchStartedAt;
+  // Capture staleness scales with the configurable capture timeout (+ match/processing margin).
+  const captureStaleAfterMs = captureStaleMs(thresholds.timeoutMs);
+  const captureStatus = telemetryStatus({ watching, captureAgeMs, sinceStartMs, staleAfterMs: captureStaleAfterMs });
+  const feedStatus = videoStatus({ active: scene === "live" && watching, videoAgeMs, sinceStartMs });
   // Eligible only when the capture lane is genuinely LIVE (not paused/stale) AND the
   // current frame passes the strict gate — a stalled good frame must not qualify.
   const currentFaceOk = captureStatus === "live" && canUseCurrentFace(frame, thresholds);
@@ -1494,7 +1535,7 @@ git push origin feature/live-hud-fixes
 - Feed + Quality/Liveness/Match gauges + grouped Frame Data all visible at once; only Frame Data scrolls.
 - Gauges legible, no label overlap; Match reads "No reference" until a reference is set.
 - Reference: Set from photo shows a thumbnail; Replace/Clear work; "Use current face" only enabled with a single good face.
-- Stop watching → "Paused"; disconnect/stall → "No signal".
+- Stop watching → "Paused" (feed + gauges). A **stalled** (non-throwing) stream → "No signal" — hard to force on real hardware; it's covered by the freshness unit tests. A real **unplug/error** surfaces as the **Error** pill and stops watching (that is Error, not "No signal").
 - Settings gear: thresholds edit live; mock toggle note says "next session"; scenario switches mid-session in mock; on narrow it opens as a bottom sheet.
 
 ---
