@@ -32,6 +32,27 @@ function Row({ k, v, tone, note }: { k: string; v: ReactNode; tone?: "ok" | "bad
   );
 }
 
+/** A multi-value field rendered as a label row over an indented, left-bordered list
+ *  of mono key→value pairs (e.g. Bounding box → origin/size, Landmarks → per-point). */
+function Block({ k, note, pairs }: { k: string; note?: string; pairs: { a: string; b: string }[] }) {
+  return (
+    <div className="fd-block">
+      <div className="fd-block-head">
+        <span className="fd-k">{k}</span>
+        {note && <span className="fd-note">{note}</span>}
+      </div>
+      <div className="fd-pairs">
+        {pairs.map((p, i) => (
+          <div className="fd-pair" key={i}>
+            <span className="fd-pa">{p.a}</span>
+            <span className="fd-pb">{p.b}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Group(
   { title, status = "live", children }: { title: string; status?: FreshnessStatus; children: ReactNode },
 ) {
@@ -70,11 +91,26 @@ export function LiveDataDisclosure(
       <Group title="Face" status={captureStatus}>
         <Row k="Faces" v={frame ? frame.numberOfFaces : DASH} />
         <Row k="Face status" v={frame?.faceStatus ?? DASH} />
-        <Row k="Bounding box" v={bb ? `x ${bb.x}, y ${bb.y}, ${bb.width}×${bb.height}` : DASH} />
-        <Row
-          k="Landmarks"
-          v={lm && lm.length > 0 ? lm.map((l) => `${l.type ?? "?"} (${l.x}, ${l.y})`).join("  ·  ") : DASH}
-        />
+        {bb
+          ? (
+            <Block
+              k="Bounding box"
+              pairs={[
+                { a: "origin", b: `${bb.x}, ${bb.y}` },
+                { a: "size", b: `${bb.width} × ${bb.height}` },
+              ]}
+            />
+          )
+          : <Row k="Bounding box" v={DASH} />}
+        {lm && lm.length > 0
+          ? (
+            <Block
+              k="Landmarks"
+              note={`${lm.length} pts`}
+              pairs={lm.map((l) => ({ a: l.type ?? "?", b: `${l.x}, ${l.y}` }))}
+            />
+          )
+          : <Row k="Landmarks" v={DASH} />}
         <Row
           k="Positioning"
           v={fb ? `raw=${fb.raw} ok=${fb.ok} [${fb.flags.join(", ")}]${fb.unknownBits ? ` unknownBits=${fb.unknownBits}` : ""}` : DASH}

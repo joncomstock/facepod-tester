@@ -809,6 +809,14 @@ details.json pre {
 .fd-v.bad { color: hsl(var(--destructive)); font-weight: 700; }
 .fd-v.muted { color: hsl(0 0% 45%); }
 .fd-note { display: block; font-size: 9px; font-style: italic; color: hsl(0 0% 42%); margin-top: 1px; }
+/* Multi-value field (Bounding box, Landmarks): label row over an indented pair list. */
+.fd-block { padding: 4px 0 6px 10px; }
+.fd-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.fd-block-head .fd-note { margin-top: 0; }
+.fd-pairs { display: flex; flex-direction: column; gap: 3px; border-left: 1px solid hsl(0 0% 16%); padding-left: 9px; }
+.fd-pair { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.fd-pa { font-family: var(--mono); font-size: 11px; color: hsl(0 0% 50%); }
+.fd-pb { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: hsl(0 0% 90%); font-variant-numeric: tabular-nums; }
 .fd-group { margin-bottom: 14px; }
 .fd-group:last-child { margin-bottom: 0; }
 .fd-group.paused, .fd-group.stale { opacity: 0.55; }
