@@ -216,8 +216,12 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     img.src = `data:image/${videoFrame.datatype === "jpg" ? "jpeg" : videoFrame.datatype};base64,${videoFrame.data}`;
   }, [videoFrame]);
 
+  // Prefer the live per-frame box, but fall back to the finalized capture frame's box —
+  // this firmware's intermediate stream carries no geometry (same reason the overlay
+  // falls back via overlayFromFrame), so without this Distance stays empty even though
+  // the capture box is populated and the bbox is drawn on the feed.
   const distance = distanceHint(
-    liveSnapshot?.boundingBox ?? null,
+    liveSnapshot?.boundingBox ?? frame?.boundingBox ?? null,
     frameNat ? frameNat.w * frameNat.h : 0,
   );
 
