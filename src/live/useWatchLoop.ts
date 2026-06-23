@@ -47,7 +47,8 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
           const capP = api.capture({
             minimalQuality: thresholds.minimalQuality,
             maximalSpoofScore: thresholds.maximalSpoofScore,
-            timeoutMs: 1500, // bound a live capture so the loop stays responsive
+            // Bound a live capture so the loop stays responsive; default 1500ms.
+            timeoutMs: thresholds.timeoutMs ?? 1500,
           }, ac.signal);
           inFlightRef.current = capP;
           const cap = await capP;

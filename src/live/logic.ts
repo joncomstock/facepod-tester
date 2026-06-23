@@ -137,6 +137,13 @@ export function guidanceForSnapshot(
   snap: LiveSnapshotState | null,
 ): { text: string | null; derived: boolean } | null {
   if (!snap) return null;
+  // A geometry-less snapshot (no faces, quality, bbox, or positioning) carries NO
+  // live signal: this firmware's intermediate results stream only operation status,
+  // never per-frame geometry. Defer to the capture-frame guidance rather than
+  // falsely asserting "no face" while a finalized capture clearly found one.
+  const hasSignal = snap.numberOfFaces >= 1 || snap.quality != null ||
+    snap.boundingBox != null || snap.positioningFeedback != null;
+  if (!hasSignal) return null;
   if (snap.numberOfFaces < 1) {
     return { text: "Step in front of the camera", derived: true };
   }
@@ -149,4 +156,47 @@ export function guidanceForSnapshot(
     return { text: null, derived: false }; // well-positioned → clear any stale correction
   }
   return null; // face present but no live positioning → fall back to capture guidance
+}
+
+/** Live confidence (0–1) = 1 − spoofScore, so higher = more live (gauge-friendly). */
+export function livenessConfidence(spoofScore: number): number {
+  return 1 - spoofScore;
+}
+
+/** The confidence value a Liveness gauge passes at, derived from the max-spoof gate. */
+export function livenessConfidenceThreshold(maximalSpoofScore: number): number {
+  return 1 - maximalSpoofScore;
+}
+
+/**
+ * Strict gate for adopting the CURRENT live frame as a match reference: exactly one
+ * face, a finalized template, quality at/above the gate, and liveness measured AND
+ * passing. Prevents a stale/low-quality cached template from qualifying.
+ */
+export function canUseCurrentFace(
+  frame: CaptureFrame | null,
+  t: LiveThresholds,
+): boolean {
+  if (!frame) return false;
+  return (
+    frame.numberOfFaces === 1 &&
+    frame.liveTemplate != null &&
+    frame.quality >= t.minimalQuality &&
+    frame.faceStatus !== "liveness_unmeasured" &&
+    frame.livenessPassed === true
+  );
+}
+
+/**
+ * Should an already-open device session be adopted into the live HUD on load?
+ * True only when the backend reports an open camera and the HUD is still idle.
+ * The caller does this exactly once per mount (a ref), which is what keeps End
+ * session from bouncing back to live: it flips scene→idle before the async status
+ * refresh reports cameraOpen:false, and a repeated check would otherwise re-adopt.
+ */
+export function shouldAdoptSession(
+  status: { cameraOpen: boolean } | null,
+  scene: "idle" | "connecting" | "live",
+): boolean {
+  return !!status?.cameraOpen && scene === "idle";
 }

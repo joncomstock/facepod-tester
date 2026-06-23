@@ -1,26 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  api,
-  ApiError,
-  type CameraInfo,
-  type CaptureRequest,
-  type CaptureResult,
-  type ConnectRequest,
-  type DeviceInfo,
-  type ImageDatatype,
-  type MatchResult,
-  type MockScenario,
-  type NormalizedError,
-  type ProcessResult,
-  type SessionStatus,
-} from "./api.ts";
-import { type CaptureThresholds } from "./components/CapturePanel.tsx";
+import { api, ApiError, type MockScenario, type NormalizedError, type SessionStatus } from "./api.ts";
+import { DEFAULT_THRESHOLDS, parseTimeoutMs, type Thresholds } from "./settings.ts";
 import { LiveView } from "./components/live/LiveView.tsx";
-import { ManualView } from "./components/manual/ManualView.tsx";
+import { SettingsModal } from "./components/SettingsModal.tsx";
 import { useDeviceParameters } from "./live/useDeviceParameters.ts";
+import { loadConnectionSettings, saveConnectionSettings } from "./live/connectionSettings.ts";
 
-function statePill(status: SessionStatus | null, busy: boolean, error: NormalizedError | null) {
-  if (busy) return { cls: "state-busy", label: "Busy" };
+// No "Busy" state (spec §5.1, revised): the continuous watch loop holds the server's op
+// lock almost constantly, so a Busy pill would be permanently lit. The connect transition
+// is shown by LiveView's full-screen "Bringing the camera online…" scene.
+function statePill(status: SessionStatus | null, error: NormalizedError | null) {
   if (error) return { cls: "state-error", label: "Error" };
   if (status?.cameraOpen) return { cls: "state-camera", label: "Camera Open" };
   if (status?.connected) return { cls: "state-connected", label: "Connected" };
@@ -30,27 +19,14 @@ function statePill(status: SessionStatus | null, busy: boolean, error: Normalize
 export function App() {
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [error, setError] = useState<NormalizedError | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
-  const [cameras, setCameras] = useState<CameraInfo[] | null>(null);
-  const [captureResult, setCaptureResult] = useState<CaptureResult | null>(null);
-  const [referenceResult, setReferenceResult] = useState<ProcessResult | null>(null);
-  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
-
-  const [thresholds, setThresholds] = useState<CaptureThresholds>({
-    minimalQuality: 0.7,
-    maximalSpoofScore: 0.5,
-    timeoutMs: "",
-  });
-  const [minimalMatchScore, setMinimalMatchScore] = useState(0.7);
-
-  const [mode, setMode] = useState<"live" | "manual">("live");
+  const initial = loadConnectionSettings();
+  const [mock, setMock] = useState<boolean>(initial.mock);
+  const [scenario, setScenario] = useState<MockScenario>(initial.scenario);
 
   const { params: deviceParams, error: deviceParamsError, fetchParams, clearParams } = useDeviceParameters();
-
-  const refTemplate = referenceResult?.template?.data ?? null;
-  const liveTemplate = captureResult?.template?.data ?? null;
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -60,126 +36,47 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => {
-    refreshStatus();
-  }, [refreshStatus]);
+  useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
-  /** Run an API action with busy/error handling and a status refresh. */
-  const run = useCallback(
-    async <T,>(fn: () => Promise<T>, after?: (r: T) => void) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const r = await fn();
-        after?.(r);
-      } catch (e) {
-        setError(
-          e instanceof ApiError
-            ? e.detail
-            : { name: "Error", message: String(e), httpStatus: 500 },
+  // Persist mock/scenario; apply scenario live only while connected in mock mode.
+  const onMockChange = useCallback((next: boolean) => {
+    setMock(next);
+    // Spread the current settings so this satisfies the connectionSettings type both before
+    // Task 6 (legacy dll/poll fields still required) and after (shrunk to {mock,scenario}).
+    saveConnectionSettings({ ...loadConnectionSettings(), mock: next, scenario });
+  }, [scenario]);
+
+  const onScenarioChange = useCallback((next: MockScenario) => {
+    setScenario(next);
+    saveConnectionSettings({ ...loadConnectionSettings(), mock, scenario: next });
+    if (status?.connected && status?.mock) {
+      api.setScenario(next)
+        .then((res) => setStatus(res.status))
+        .catch((e) =>
+          setError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 })
         );
-      } finally {
-        await refreshStatus();
-        setBusy(false);
-      }
-    },
-    [refreshStatus],
-  );
+    }
+  }, [mock, status]);
 
-  function captureReq(): CaptureRequest {
-    const ms = thresholds.timeoutMs.trim();
-    return {
-      minimalQuality: thresholds.minimalQuality,
-      maximalSpoofScore: thresholds.maximalSpoofScore,
-      timeoutMs: ms === "" ? undefined : Number(ms),
-    };
-  }
-
-  // ---- Handlers ----
-  const handleConnect = (req: ConnectRequest) =>
-    run(() => api.connect(req), async (res) => {
-      setDeviceInfo(res.deviceInfo);
-      // Pre-load the camera list so the camera selector is populated.
-      try {
-        setCameras((await api.getCameras()).cameras);
-      } catch { /* non-fatal */ }
-    });
-
-  const handleDisconnect = () =>
-    run(api.disconnect, () => {
-      setDeviceInfo(null);
-      setCameras(null);
-      setCaptureResult(null);
-      setReferenceResult(null);
-      setMatchResult(null);
-      clearParams();
-    });
-
-  const handleSetScenario = (scenario: MockScenario) => run(() => api.setScenario(scenario));
-
-  const handleCapture = () => run(() => api.capture(captureReq()), (r) => setCaptureResult(r.result));
-
-  const handleProcessReference = (image: { image: string; datatype: ImageDatatype }) =>
-    run(
-      () => api.processImage({ ...image, minimalQuality: thresholds.minimalQuality }),
-      (r) => setReferenceResult(r.result),
-    );
-
-  const handleMatch = () => {
-    if (!refTemplate || !liveTemplate) return;
-    run(
-      () => api.match({ template1: refTemplate, template2: liveTemplate, minimalMatchScore }),
-      (r) => setMatchResult(r.result),
-    );
-  };
-
-  const handleCaptureAndMatch = (image: { image: string; datatype: ImageDatatype }) =>
-    run(
-      () => api.captureAndMatch({ ...image, minimalMatchScore, capture: captureReq() }),
-      (r) => {
-        setReferenceResult(r.result.reference);
-        setCaptureResult(r.result.live);
-        setMatchResult(r.result.match);
-      },
-    );
-
-  const pill = statePill(status, busy, error);
+  const pill = statePill(status, error);
 
   return (
     <div className="app">
       <header className="masthead">
         <h1>FacePod Tester</h1>
-        <div className="mode-toggle" role="tablist" aria-label="View mode">
-          <button
-            role="tab"
-            aria-selected={mode === "live"}
-            className={mode === "live" ? "on" : ""}
-            onClick={() => setMode("live")}
-          >
-            Live
-          </button>
-          <button
-            role="tab"
-            aria-selected={mode === "manual"}
-            className={mode === "manual" ? "on" : ""}
-            onClick={() => setMode("manual")}
-          >
-            Manual
-          </button>
-        </div>
-      </header>
-
-      <div className="status-strip" role="status" aria-live="polite">
-        <span className={`state-pill ${pill.cls}`}>
-          <span className="dot" />
-          {pill.label}
-        </span>
-        {status?.mock && (
-          <span className="mock-tag">
-            Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
+        <div className="masthead-status" role="status" aria-live="polite">
+          <span className={`state-pill ${pill.cls}`}>
+            <span className="dot" />
+            {pill.label}
           </span>
-        )}
-      </div>
+          {status?.mock && (
+            <span className="mock-tag">
+              Mock{status.scenario && status.scenario !== "good" ? ` · ${status.scenario}` : ""}
+            </span>
+          )}
+        </div>
+        <button className="icon-btn settings-btn" aria-label="Settings" onClick={() => setSettingsOpen(true)}>⚙</button>
+      </header>
 
       {error && (
         <div className="error-banner" role="alert">
@@ -193,54 +90,34 @@ export function App() {
         </div>
       )}
 
-      {mode === "manual"
-        ? (
-          <ManualView
-            status={status}
-            busy={busy}
-            deviceInfo={deviceInfo}
-            cameras={cameras}
-            captureResult={captureResult}
-            referenceResult={referenceResult}
-            matchResult={matchResult}
-            refTemplate={refTemplate}
-            liveTemplate={liveTemplate}
-            thresholds={thresholds}
-            minimalMatchScore={minimalMatchScore}
-            onThresholdChange={(patch) => setThresholds((t) => ({ ...t, ...patch }))}
-            onMinimalMatchScoreChange={setMinimalMatchScore}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-            onSetScenario={handleSetScenario}
-            onRefreshInfo={() => run(api.getDeviceInfo, (r) => setDeviceInfo(r.deviceInfo))}
-            onRefreshCameras={() => run(api.getCameras, (r) => setCameras(r.cameras))}
-            onOpenCamera={(req) => run(() => api.openCamera(req))}
-            onCloseCamera={() => run(api.closeCamera)}
-            onCapture={handleCapture}
-            onProcessReference={handleProcessReference}
-            onMatch={handleMatch}
-            onCaptureAndMatch={handleCaptureAndMatch}
-            deviceParams={deviceParams}
-            deviceParamsError={deviceParamsError}
-            onFetchParams={fetchParams}
-          />
-        )
-        : (
-          <LiveView
-            status={status}
-            thresholds={{
-              minimalQuality: thresholds.minimalQuality,
-              maximalSpoofScore: thresholds.maximalSpoofScore,
-              minimalMatchScore: minimalMatchScore,
-            }}
-            onError={setError}
-            onSessionChange={refreshStatus}
-            deviceParams={deviceParams}
-            deviceParamsError={deviceParamsError}
-            onFetchParams={fetchParams}
-            onClearParams={clearParams}
-          />
-        )}
+      <LiveView
+        status={status}
+        thresholds={{
+          minimalQuality: thresholds.minimalQuality,
+          maximalSpoofScore: thresholds.maximalSpoofScore,
+          minimalMatchScore: thresholds.minimalMatchScore,
+          timeoutMs: parseTimeoutMs(thresholds.timeoutMs),
+        }}
+        onError={setError}
+        onSessionChange={refreshStatus}
+        deviceParams={deviceParams}
+        deviceParamsError={deviceParamsError}
+        onFetchParams={fetchParams}
+        onClearParams={clearParams}
+      />
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        thresholds={thresholds}
+        onThresholdChange={(patch) => setThresholds((t) => ({ ...t, ...patch }))}
+        mock={mock}
+        scenario={scenario}
+        connected={!!status?.connected}
+        sessionMock={!!status?.mock}
+        onMockChange={onMockChange}
+        onScenarioChange={onScenarioChange}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { overlayDecision } from "./overlayDisplay.ts";
-import type { LiveSnapshotState } from "./types.ts";
+import { overlayDecision, overlayFromFrame } from "./overlayDisplay.ts";
+import type { CaptureFrame, LiveSnapshotState } from "./types.ts";
 
 const withFace: LiveSnapshotState = {
   numberOfFaces: 1,
@@ -31,5 +31,40 @@ describe("overlayDecision", () => {
   });
   it("clears when there is no snapshot at all", () => {
     expect(overlayDecision({ snapshot: null, snapshotAgeMs: null, ...opts })).toBeNull();
+  });
+});
+
+const baseFrame: CaptureFrame = {
+  image: null,
+  quality: 0.9,
+  spoofScore: 0,
+  livenessPassed: true,
+  numberOfFaces: 1,
+  boundingBox: { x: 40, y: 30, width: 180, height: 220 },
+  isCaptured: true,
+  faceStatus: "ok",
+  matchScore: null,
+  matchPassed: null,
+  positioningFeedback: null,
+  landmarks: [{ type: "left_eye", x: 90, y: 110 }],
+  liveTemplate: null,
+};
+
+describe("overlayFromFrame (capture-frame fallback)", () => {
+  it("builds an overlay from the capture frame's bbox + landmarks", () => {
+    const d = overlayFromFrame(baseFrame);
+    expect(d?.box).toEqual(baseFrame.boundingBox);
+    expect(d?.points).toEqual([{ x: 90, y: 110 }]);
+    expect(d?.opacity).toBe(1);
+  });
+  it("returns null when there is no frame", () => {
+    expect(overlayFromFrame(null)).toBeNull();
+  });
+  it("returns null when no face / no box", () => {
+    expect(overlayFromFrame({ ...baseFrame, numberOfFaces: 0 })).toBeNull();
+    expect(overlayFromFrame({ ...baseFrame, boundingBox: null })).toBeNull();
+  });
+  it("tolerates a missing landmark list (empty points)", () => {
+    expect(overlayFromFrame({ ...baseFrame, landmarks: null })?.points).toEqual([]);
   });
 });

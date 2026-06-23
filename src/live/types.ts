@@ -8,6 +8,8 @@ export interface LiveThresholds {
   maximalSpoofScore: number;
   /** Match passes when score >= this. Only used when a reference is set. */
   minimalMatchScore: number;
+  /** Per-capture timeout (ms) for the watch loop; falls back to a default when unset. */
+  timeoutMs?: number;
 }
 
 export interface CaptureFrame {

@@ -16,6 +16,8 @@ interface FramePollState {
   videoFrame: { datatype: string; data: string } | null;
   liveSnapshot: LiveSnapshotState | null;
   snapshotAgeMs: number | null;
+  /** Rolling feed rate (fresh frames/sec), null until enough samples. */
+  fps: number | null;
   stopAndDrain: () => Promise<void>;
 }
 
@@ -36,6 +38,8 @@ export function useFramePoll(opts: Options): FramePollState {
   const [videoFrame, setVideoFrame] = useState<{ datatype: string; data: string } | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshotState | null>(null);
   const [snapshotAgeMs, setSnapshotAgeMs] = useState<number | null>(null);
+  const [fps, setFps] = useState<number | null>(null);
+  const frameTimesRef = useRef<number[]>([]);
 
   const stopAndDrain = async () => {
     runningRef.current = false;
@@ -46,6 +50,8 @@ export function useFramePoll(opts: Options): FramePollState {
     setVideoFrame(null);
     setLiveSnapshot(null);
     setSnapshotAgeMs(null);
+    setFps(null);
+    frameTimesRef.current = [];
   };
   const stopRef = useRef(stopAndDrain);
   stopRef.current = stopAndDrain;
@@ -58,6 +64,7 @@ export function useFramePoll(opts: Options): FramePollState {
     // the previous cursor — keeping the old cursor would make the server return
     // "nothing newer" forever and freeze the feed.
     lastSeqRef.current = "-1";
+    frameTimesRef.current = [];
     const loop = async () => {
       while (runningRef.current && ref.current.active) {
         const ac = new AbortController();
@@ -72,6 +79,15 @@ export function useFramePoll(opts: Options): FramePollState {
             lastSeqRef.current = nextLastSeq(lastSeqRef.current, resp);
             setVideoFrame({ datatype: resp.frame.datatype, data: resp.frame.data });
             setLiveSnapshot(snapshotForSession(resp, ref.current.sessionGeneration));
+            // Rolling fps over the last ~12 fresh frames (feed rate, a live metric).
+            const t = performance.now();
+            const times = frameTimesRef.current;
+            times.push(t);
+            if (times.length > 12) times.shift();
+            if (times.length >= 2) {
+              const span = times[times.length - 1] - times[0];
+              if (span > 0) setFps(((times.length - 1) / span) * 1000);
+            }
           }
           // ...but ALWAYS advance the overlay age (server-computed), even on a
           // null-frame response. If frame production stalls, the last overlay must
@@ -97,5 +113,5 @@ export function useFramePoll(opts: Options): FramePollState {
     return () => { void stopRef.current(); };
   }, [opts.active, opts.restartKey]);
 
-  return { videoFrame, liveSnapshot, snapshotAgeMs, stopAndDrain: () => stopRef.current() };
+  return { videoFrame, liveSnapshot, snapshotAgeMs, fps, stopAndDrain: () => stopRef.current() };
 }

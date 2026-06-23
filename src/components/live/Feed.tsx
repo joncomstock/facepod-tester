@@ -14,6 +14,8 @@ interface Props {
   overlay?: { box: { x: number; y: number; width: number; height: number }; points: { x: number; y: number }[]; opacity: number } | null;
   /** Called once when the image's natural dimensions are first known. */
   onNaturalSize?: (s: { w: number; h: number }) => void;
+  /** Video-lane freshness — gates the verdict chip and shows a paused/stale badge. */
+  status?: import("../../live/freshness.ts").FreshnessStatus;
 }
 
 function imgSrc(datatype: string, data: string): string {
@@ -22,12 +24,17 @@ function imgSrc(datatype: string, data: string): string {
 
 /** The viewfinder: full live frame in a 9:16 box with a bbox + landmark overlay
  *  mapped from the frame's natural pixel dims (no cover-crop, no transform). */
-export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, overlay = null, onNaturalSize }: Props) {
+export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, overlay = null, onNaturalSize, status = "live" }: Props) {
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   const img = videoFrame ?? frame?.image ?? null;
   const locked = verdict.state === "accept";
   const present = liveFaces != null ? liveFaces >= 1 : verdict.state !== "searching";
   const box = overlay && nat ? mapBox(overlay.box, nat.w, nat.h) : null;
+  const vlabel = verdict.state === "accept" ? "✓ ACCEPT"
+    : verdict.state === "reject" ? "✗ REJECT"
+    : verdict.state === "acquiring" ? "Acquiring…"
+    : "Watching…";
+  const vreasons = verdict.reasons.length > 0 ? verdict.reasons.join(" · ") : null;
   return (
     <div className={`feed ${locked ? "locked" : present ? "present" : "searching"}`}>
       <div className="feed-media">
@@ -62,8 +69,22 @@ export function Feed({ frame, verdict, guidance, videoFrame = null, liveFaces, o
       <div className="scan" />
       <div className="bracket tl" /><div className="bracket tr" />
       <div className="bracket bl" /><div className="bracket br" />
-      {guidance && (
+      {/* Verdict chip (top-center) — only while the lane is genuinely live. */}
+      {status === "live" && (
+        <div className={`feed-verdict ${verdict.state}`}>
+          <span>{vlabel}</span>
+          {vreasons && <span className="vr">{vreasons}</span>}
+        </div>
+      )}
+      {/* Video-lane status badge (top-right). */}
+      {status !== "live" && (
+        <div className={`feed-badge ${status}`}>{status === "paused" ? "Paused" : "No signal"}</div>
+      )}
+      {status === "live" && guidance && (
         <div className="guide"><span className="ar">⌖</span>{guidance}</div>
+      )}
+      {status !== "live" && (
+        <div className="feed-overlay">{status === "paused" ? "Paused" : "No signal"}</div>
       )}
     </div>
   );
