@@ -18,6 +18,7 @@ import {
   createFaceModuleFfi,
   type DeviceInfo,
   type DeviceParameters,
+  type DeviceParametersPatch,
   type FaceImage,
   FaceModuleLifecycle,
   FaceModuleStatusCodes,
@@ -26,6 +27,7 @@ import {
   type LiveSnapshot,
   type MatchResult,
   type ProcessResult,
+  type SetParametersResult,
   type VideoFrame,
 } from "@eai/hid/facepod";
 
@@ -468,6 +470,13 @@ export class FacePodSession {
 
   getParameters(): Promise<DeviceParameters> {
     return this.#track(() => this.#require().device.getParameters());
+  }
+
+  setParameters(patch: DeviceParametersPatch): Promise<SetParametersResult> {
+    // A write — #track-serialized like every device op (and op-locked in the lib).
+    // No tester-side cache: writes are context-scoped on the device; getParameters
+    // re-reads live. The FaceModule facade refuses non-allowlisted keys (→ 422).
+    return this.#track(() => this.#require().device.setParameters(patch));
   }
 
   /** Idempotent: opening an already-open camera is a no-op (never double-open). */

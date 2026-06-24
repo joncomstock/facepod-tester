@@ -554,3 +554,44 @@ Deno.test("captureHighRes keeps multiple ids fetchable (keyed buffer, not latest
   assert(s.takeHighResImage(b.id!));
   await s.disconnect();
 });
+
+Deno.test("setParameters (mock): applied round-trip; getParameters reflects the write", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+
+  const r = await s.setParameters({ maxYaw: 10, streamMode: 1 });
+  assertEquals(r.results.maxYaw, { requested: 10, effective: 10, status: "applied" });
+  assertEquals(r.results.streamMode?.status, "applied");
+  assertEquals((await s.getParameters()).maxYaw, 10);
+
+  await s.disconnect();
+});
+
+Deno.test("setParameters (mock): clamped and rejected statuses", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+
+  // Widening a MAX past the factory default (15) is rejected → unchanged.
+  const rej = await s.setParameters({ maxYaw: 90 });
+  assertEquals(rej.results.maxYaw, { requested: 90, effective: 15, status: "rejected" });
+
+  // A match-score threshold above 1 clamps to the [0,1] boundary.
+  const clamp = await s.setParameters({ recMinMatchScoreL1: 1.5 });
+  assertEquals(clamp.results.recMinMatchScoreL1, { requested: 1.5, effective: 1, status: "clamped" });
+
+  await s.disconnect();
+});
+
+Deno.test("setParameters refuses non-allowlisted keys (UnsupportedParameterError)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  await assertRejects(
+    () => s.setParameters({ cameraEnableHighRes: 1 } as Parameters<typeof s.setParameters>[0]),
+    Error,
+    "cameraEnableHighRes",
+  );
+  await s.disconnect();
+});
