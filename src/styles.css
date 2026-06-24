@@ -908,3 +908,55 @@ details.json pre {
   color: hsl(var(--muted-foreground));
 }
 .feed-badge.stale { color: hsl(var(--warning)); border-color: hsl(var(--warning) / 0.5); }
+
+/* ---- Mode switch (Verify / Identify / Console) ---- */
+.mode-switch {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 9px 16px;
+  border-bottom: 1px solid hsl(0 0% 14%);
+  background: hsl(0 0% 7% / 0.5);
+}
+.mode-tab {
+  flex: 1;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(0 0% 60%);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.mode-tab.is-active {
+  border-color: hsl(var(--primary) / 0.55);
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+
+/* ---- Coming-soon banner (deferred capability regions) ---- */
+.coming-soon {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  border-radius: 12px;
+  background: hsl(var(--primary) / 0.06);
+}
+.cs-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.12);
+  border: 1px solid hsl(var(--primary) / 0.4);
+}
+.cs-copy { font-size: 13px; color: hsl(0 0% 62%); line-height: 1.5; }
