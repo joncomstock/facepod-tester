@@ -36,6 +36,9 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
 
   useEffect(() => {
     if (!opts.active) return;
+    // Per-effect-run guard: `runningRef` is shared across effect runs, so a rapid
+    // active re-toggle could revive THIS (stale) loop after cleanup. `cancelled` is
+    // closed over per run and can't be flipped back true, so a superseded loop stays dead.
     let cancelled = false;
     runningRef.current = true;
 

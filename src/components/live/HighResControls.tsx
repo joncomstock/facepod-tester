@@ -62,7 +62,7 @@ export function HighResControls({ active, streamMode, hr, captureReq, onOpenTune
         </div>
       )}
 
-      {previewOpen && hr.url && (
+      {previewOpen && hr.state.status === "ready" && hr.url && (
         <div className="hr-preview" onClick={() => setPreviewOpen(false)} role="dialog" aria-label="High-res preview">
           <img src={hr.url} alt="High-res still" />
         </div>
