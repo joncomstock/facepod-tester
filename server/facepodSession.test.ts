@@ -532,6 +532,7 @@ Deno.test("takeHighResImage is one-shot and cleared on disconnect", async () => 
   assertEquals(s.takeHighResImage(meta.id!), null); // already fetched
 
   const again = await s.captureHighRes({ minimalQuality: 0.5 });
+  assert(again.id);
   await s.disconnect();
   assertEquals(s.takeHighResImage(again.id!), null); // cleared on teardown
 });
