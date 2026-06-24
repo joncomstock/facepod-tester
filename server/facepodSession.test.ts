@@ -47,6 +47,7 @@ function frameClient(frames: Promise<VideoFrame>[]): FaceModuleClient {
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
   };
 }
 
@@ -178,6 +179,7 @@ Deno.test("failed connect leaves no live session and disposes the client", async
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     close: () => {
       closed = true;
     },
@@ -329,6 +331,7 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -379,6 +382,7 @@ Deno.test("teardown refuses to dispose while a frame read is still in flight (se
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -426,6 +430,7 @@ Deno.test("readFrame propagates a real read failure (records lastError + throws,
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
+    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));

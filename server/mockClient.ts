@@ -22,6 +22,7 @@ import {
   FaceModuleApiError,
   type FaceModuleClient,
   type FaceTemplate,
+  type HighResCapture,
   type LiveSnapshot,
   type MatchOptions,
   type MatchResult,
@@ -290,6 +291,27 @@ export class DeterministicMockClient implements FaceModuleClient {
       positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
       isCaptured: quality >= opts.minimalQuality && passed,
       faceStatus: passed ? "ok" : "spoof_suspected",
+    });
+  }
+
+  captureHighRes(_opts: CaptureOptions, _signal?: AbortSignal): Promise<HighResCapture> {
+    const scenario = this.#scenario();
+    if (scenario === "device-error") return Promise.reject(deviceError("captureHighRes"));
+    if (scenario === "no-face") {
+      return Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 });
+    }
+    // Deterministic synthetic still: the 1x1 placeholder PNG (dims 1x1) — enough to
+    // exercise the metadata + binary-download path without real 4K bytes.
+    const bytes = decodeBase64(PLACEHOLDER_PNG_BASE64);
+    return Promise.resolve({
+      hasImage: true,
+      bytes,
+      format: "png",
+      width: 1,
+      height: 1,
+      byteLength: bytes.length,
+      quality: 0.92,
+      numberOfFaces: 1,
     });
   }
 
