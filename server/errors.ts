@@ -86,6 +86,10 @@ export function normalizeError(err: unknown): NormalizedError {
         httpStatus: 422,
       };
 
+    case "UnsupportedParameterError":
+      // setParameters refused a non-allowlisted key (Decision A). Client error.
+      return { name: "UnsupportedParameterError", message: e.message, httpStatus: 422 };
+
     case "ConfigError":
       return { name: "ConfigError", message: e.message, httpStatus: 400 };
 

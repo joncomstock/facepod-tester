@@ -18,6 +18,7 @@ import {
   type CaptureResult,
   type DeviceInfo,
   type DeviceParameters,
+  type DeviceParametersPatch,
   type FaceImage,
   FaceModuleApiError,
   type FaceModuleClient,
@@ -27,8 +28,10 @@ import {
   type MatchOptions,
   type MatchResult,
   type OpenContextOptions,
+  type ParameterWriteResult,
   type ProcessOptions,
   type ProcessResult,
+  type SetParametersResult,
   type VideoFrame,
 } from "@eai/hid/facepod";
 
@@ -100,10 +103,54 @@ function deviceError(op: string): FaceModuleApiError {
   );
 }
 
+/** Mock factory defaults. Values chosen DISTINCT from the UI defaults (0.7/0.5/0.7)
+ *  so the reference ticks are visibly offset in the demo. The envelope reference for
+ *  setParameters clamp/reject (Decision A). */
+const MOCK_DEFAULT_PARAMS: DeviceParameters = {
+  captureImageEncoding: 1, streamMode: 0, captureMode: 1,
+  recMaxSpoofProbability: 0.45, recMinEnrollTemplateQuality: 0.7,
+  recMinVerifyTemplateQuality: 0.65,
+  recMinMatchScoreL1: 0.8, recMinMatchScoreL2: 0.9, recMinMatchScoreL3: 0.95,
+  cameraEnableHighRes: 1, cameraSuspend: 0, cameraIdleTimeoutMs: 30000,
+  cameraEncodingAcceleration: 1, cameraLowPowerMode: 0, cameraLowPowerTimeoutMs: 60000,
+  faceSelectPolicy: 0,
+  minDistance: 0.3, maxDistance: 1.0, minRoll: -15, maxRoll: 15,
+  minPitch: -15, maxPitch: 15, minYaw: -15, maxYaw: 15,
+  margin: 20, onlyCenteredFaces: 1, maxResults: 1,
+  dayToNightThreshold: 30, nightToDayThreshold: 60,
+  dayToNightViscosity: 5, nightToDayViscosity: 5,
+  aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
+};
+
+/**
+ * Emulate the device's factory-envelope behaviour for a single safe-writable key:
+ * - pose/distance MAX limits: widening (increasing past the factory default) is
+ *   rejected → unchanged; narrowing applies.
+ * - pose/distance MIN limits: widening (decreasing past the factory default) is
+ *   rejected → unchanged; narrowing applies.
+ * - match-score thresholds: clamp to [0,1] (out-of-range → boundary = clamped).
+ * - streamMode: enum {0,1,2}; out-of-range is rejected → unchanged.
+ * Mirrors ground truth §5 (monotonic = factory-envelope clamp) closely enough to
+ * exercise applied/clamped/rejected off-device.
+ */
+function mockEffectiveParam(field: string, requested: number, original: number): number {
+  const factory = (MOCK_DEFAULT_PARAMS as unknown as Record<string, number>)[field];
+  if (field === "streamMode") return requested === 0 || requested === 1 || requested === 2 ? requested : original;
+  if (field.startsWith("recMinMatchScore")) return Math.max(0, Math.min(1, requested));
+  if (field.startsWith("max")) return requested > factory ? original : requested; // widening a max = reject
+  if (field.startsWith("min")) return requested < factory ? original : requested; // widening a min = reject
+  return requested;
+}
+
 export class DeterministicMockClient implements FaceModuleClient {
   readonly #scenario: () => MockScenario;
   #approachTick = 0;
   #frameSeq = 0n; // per-instance monotonic preview cursor (declare with the other #fields)
+  // Live-default device config (the values the read-only Tune drawer shows). Stateful
+  // from here: setParameters mutates #params and getParameters reflects it, so the UI
+  // can round-trip a write. Reset on context-open to mirror the device's context-scoped,
+  // non-persisted writes (ground truth §5).
+  #params: DeviceParameters = { ...MOCK_DEFAULT_PARAMS };
 
   /** @param scenario provider read on every call, so scenarios switch live. */
   constructor(scenario: () => MockScenario = () => "good") {
@@ -127,23 +174,7 @@ export class DeterministicMockClient implements FaceModuleClient {
   }
 
   getParameters(): Promise<DeviceParameters> {
-    // Deterministic device config. Values chosen DISTINCT from the UI defaults
-    // (0.7/0.5/0.7) so the reference ticks are visibly offset in the demo.
-    return Promise.resolve({
-      captureImageEncoding: 1, streamMode: 0, captureMode: 1,
-      recMaxSpoofProbability: 0.45, recMinEnrollTemplateQuality: 0.7,
-      recMinVerifyTemplateQuality: 0.65,
-      recMinMatchScoreL1: 0.8, recMinMatchScoreL2: 0.9, recMinMatchScoreL3: 0.95,
-      cameraEnableHighRes: 1, cameraSuspend: 0, cameraIdleTimeoutMs: 30000,
-      cameraEncodingAcceleration: 1, cameraLowPowerMode: 0, cameraLowPowerTimeoutMs: 60000,
-      faceSelectPolicy: 0,
-      minDistance: 0.3, maxDistance: 1.0, minRoll: -15, maxRoll: 15,
-      minPitch: -15, maxPitch: 15, minYaw: -15, maxYaw: 15,
-      margin: 20, onlyCenteredFaces: 1, maxResults: 1,
-      dayToNightThreshold: 30, nightToDayThreshold: 60,
-      dayToNightViscosity: 5, nightToDayViscosity: 5,
-      aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
-    });
+    return Promise.resolve({ ...this.#params });
   }
 
   // Pure preview read; mirrors the lib's getVideoFrame (no op-lock, may be called
@@ -163,6 +194,9 @@ export class DeterministicMockClient implements FaceModuleClient {
   }
 
   openCameraContext(_opts?: OpenContextOptions): Promise<void> {
+    // Device writes are context-scoped & not persisted (ground truth §5): a fresh
+    // context starts from factory defaults. Mirror that so set→reopen→read resets.
+    this.#params = { ...MOCK_DEFAULT_PARAMS };
     return Promise.resolve();
   }
 
@@ -313,6 +347,20 @@ export class DeterministicMockClient implements FaceModuleClient {
       quality: 0.92,
       numberOfFaces: 1,
     });
+  }
+
+  setParameters(patch: DeviceParametersPatch): Promise<SetParametersResult> {
+    const results: Record<string, ParameterWriteResult> = {};
+    const p = this.#params as unknown as Record<string, number>;
+    for (const [field, requested] of Object.entries(patch as Record<string, number>)) {
+      const original = p[field];
+      const effective = mockEffectiveParam(field, requested, original);
+      p[field] = effective;
+      // Status mirrors the lib's read-back classifier semantics (applied/clamped/rejected).
+      const status = effective === requested ? "applied" : (effective === original ? "rejected" : "clamped");
+      results[field] = { requested, effective, status };
+    }
+    return Promise.resolve({ results } as SetParametersResult);
   }
 
   processImage(
