@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { CaptureFrame } from "../../live/types.ts";
 import type { FreshnessStatus } from "../../live/freshness.ts";
+import { estimatePose } from "../../live/pose3d.ts";
 
 interface Props {
   frame: CaptureFrame | null;
@@ -17,6 +18,9 @@ interface Props {
 }
 
 const DASH = "—";
+
+/** Format a derived angle (deg) for display; null → em-dash. */
+const degp = (x: number | null) => (x == null ? DASH : `${x.toFixed(1)}°`);
 
 function Row({ k, v, tone, note }: { k: string; v: ReactNode; tone?: "ok" | "bad" | "muted"; note?: string }) {
   // Empty (em-dash) values default to muted so the no-face state reads calm, not a wall of bright dashes.
@@ -72,6 +76,7 @@ export function LiveDataDisclosure(
   const bb = frame?.boundingBox ?? null;
   const fb = frame?.positioningFeedback ?? null;
   const lm = frame?.landmarks ?? null;
+  const pose = estimatePose(lm, frameNat);
   const hasFace = !!frame && frame.numberOfFaces >= 1;
   const livenessMeasured = hasFace && frame!.faceStatus !== "liveness_unmeasured";
   const headTag = captureStatus === "paused"
@@ -111,6 +116,19 @@ export function LiveDataDisclosure(
             />
           )
           : <Row k="Landmarks" v={DASH} />}
+        {pose
+          ? (
+            <Block
+              k="Pose"
+              note={pose.method === "3d" ? "3D fit · derived" : "2D est · derived"}
+              pairs={[
+                { a: "roll", b: degp(pose.roll) },
+                { a: "yaw", b: degp(pose.yaw) },
+                { a: "pitch", b: degp(pose.pitch) },
+              ]}
+            />
+          )
+          : <Row k="Pose" v={DASH} tone="muted" note="derived from landmarks" />}
         <Row
           k="Positioning"
           v={fb ? `raw=${fb.raw} ok=${fb.ok} [${fb.flags.join(", ")}]${fb.unknownBits ? ` unknownBits=${fb.unknownBits}` : ""}` : DASH}

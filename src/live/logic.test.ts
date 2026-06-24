@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureResult, MatchResult } from "../api.ts";
-import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame, livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace, shouldAdoptSession } from "./logic.ts";
+import { barState, computeVerdict, deriveGuidance, guidanceFor, guidanceForSnapshot, positioningGuidance, toCaptureFrame, livenessConfidence, livenessConfidenceThreshold, canUseCurrentFace, shouldAdoptSession, faceLostGuidance, initialFaceLostCarry, FACE_LOST_WINDOW_MS, NO_FACE_GUIDANCE } from "./logic.ts";
 import type { CaptureFrame, LiveSnapshotState, LiveThresholds } from "./types.ts";
 
 const snap = (over: Partial<LiveSnapshotState>): LiveSnapshotState => ({
@@ -263,5 +263,78 @@ describe("shouldAdoptSession", () => {
     // scene→idle before the async status refresh clears cameraOpen — from re-adopting.
     expect(shouldAdoptSession({ cameraOpen: true }, "connecting")).toBe(false);
     expect(shouldAdoptSession({ cameraOpen: true }, "live")).toBe(false);
+  });
+});
+
+describe("faceLostGuidance (drop breadcrumb)", () => {
+  it("passes base guidance through and remembers an actionable correction while a face is present", () => {
+    const r = faceLostGuidance(initialFaceLostCarry, {
+      facePresent: true,
+      baseGuidance: "Lower your head",
+      now: 1000,
+    });
+    expect(r.text).toBe("Lower your head");
+    expect(r.carry).toEqual({ reason: "Lower your head", lastPresentAt: 1000, seen: true });
+  });
+
+  it("keeps the last correction when the face is currently well-positioned (null/locked)", () => {
+    const carry = { reason: "Turn right", lastPresentAt: 1000, seen: true };
+    const r = faceLostGuidance(carry, { facePresent: true, baseGuidance: null, now: 1200 });
+    expect(r.text).toBeNull();
+    expect(r.carry).toEqual({ reason: "Turn right", lastPresentAt: 1200, seen: true });
+  });
+
+  it("does NOT treat the no-face default as a correction worth remembering", () => {
+    const r = faceLostGuidance(initialFaceLostCarry, {
+      facePresent: true,
+      baseGuidance: NO_FACE_GUIDANCE,
+      now: 500,
+    });
+    expect(r.carry.reason).toBeNull();
+  });
+
+  it("surfaces the last reason for a few seconds after the face drops", () => {
+    const carry = { reason: "Lower your head", lastPresentAt: 1000, seen: true };
+    const within = faceLostGuidance(carry, {
+      facePresent: false,
+      baseGuidance: NO_FACE_GUIDANCE,
+      now: 1000 + FACE_LOST_WINDOW_MS - 1,
+    });
+    expect(within.text).toBe("Face lost — Lower your head");
+    expect(within.carry).toEqual(carry); // anchor preserved while counting down
+  });
+
+  it("uses a generic loss message when there was no prior correction", () => {
+    const carry = { reason: null, lastPresentAt: 2000, seen: true };
+    const r = faceLostGuidance(carry, { facePresent: false, baseGuidance: NO_FACE_GUIDANCE, now: 2500 });
+    expect(r.text).toBe("Face lost — moved out of view?");
+  });
+
+  it("reverts to base guidance and forgets the reason once the window elapses", () => {
+    const carry = { reason: "Lower your head", lastPresentAt: 1000, seen: true };
+    const r = faceLostGuidance(carry, {
+      facePresent: false,
+      baseGuidance: NO_FACE_GUIDANCE,
+      now: 1000 + FACE_LOST_WINDOW_MS + 1,
+    });
+    expect(r.text).toBe(NO_FACE_GUIDANCE);
+    expect(r.carry).toEqual(initialFaceLostCarry);
+  });
+
+  it("shows no breadcrumb before any face has ever been seen", () => {
+    const r = faceLostGuidance(initialFaceLostCarry, {
+      facePresent: false,
+      baseGuidance: NO_FACE_GUIDANCE,
+      now: 5000,
+    });
+    expect(r.text).toBe(NO_FACE_GUIDANCE);
+  });
+
+  it("is idempotent for a fixed `now` (safe to call during render)", () => {
+    const opts = { facePresent: true, baseGuidance: "Move closer", now: 3000 };
+    const once = faceLostGuidance(initialFaceLostCarry, opts);
+    const twice = faceLostGuidance(once.carry, opts);
+    expect(twice.carry).toEqual(once.carry);
+    expect(twice.text).toBe(once.text);
   });
 });

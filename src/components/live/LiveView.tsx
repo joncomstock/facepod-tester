@@ -5,7 +5,7 @@ import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
 import { useFramePoll } from "../../live/useFramePoll.ts";
 import { overlayDecision, overlayFromFrame } from "../../live/overlayDisplay.ts";
-import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot, shouldAdoptSession } from "../../live/logic.ts";
+import { canUseCurrentFace, computeVerdict, faceLostGuidance, guidanceFor, guidanceForSnapshot, initialFaceLostCarry, NO_FACE_GUIDANCE, shouldAdoptSession, type FaceLostCarry } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
@@ -46,6 +46,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const frameTickRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const adoptedRef = useRef(false); // one-time session adoption (see effect below)
+  const lostCarryRef = useRef<FaceLostCarry>(initialFaceLostCarry); // face-drop breadcrumb memory
 
   const hasReference = refTemplate !== null;
 
@@ -97,9 +98,19 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   // live snapshot has no correction do we fall back to the capture-frame guidance,
   // which alone knows the locked/acquiring nuance (isCaptured is capture-cadence).
   const live = guidanceForSnapshot(liveSnapshot);
-  const g = frame ? guidanceFor(frame) : { text: "Step in front of the camera", derived: true };
-  const guidance = live ? live.text : g.text;
+  const g = frame ? guidanceFor(frame) : { text: NO_FACE_GUIDANCE, derived: true };
+  const baseGuidance = live ? live.text : g.text;
   const guidanceDerived = live ? live.derived : g.derived;
+  // Persist a "why the face dropped" breadcrumb for a few seconds after a loss, so a
+  // subject who tilted out of the detection envelope sees the last correction rather
+  // than an immediate, contextless "Step in front of the camera". `now` ticks each
+  // second while watching, which both re-renders and ages out the breadcrumb.
+  const { text: guidance, carry: nextLostCarry } = faceLostGuidance(lostCarryRef.current, {
+    facePresent: liveFaces >= 1,
+    baseGuidance,
+    now,
+  });
+  lostCarryRef.current = nextLostCarry;
 
   const refreshParams = useCallback(async () => {
     setWatching(false);          // free the device lock
@@ -159,7 +170,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   }, [watching, onError, onSessionChange, onClearParams, stopFrames, stopWatch]);
 
   useEffect(() => {
-    if (!watching) setFrame(null);
+    if (!watching) { setFrame(null); lostCarryRef.current = initialFaceLostCarry; }
   }, [watching]);
 
   // Adopt an already-open device session (e.g. after a page reload) into the HUD

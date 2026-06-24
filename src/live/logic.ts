@@ -78,8 +78,11 @@ export function computeVerdict(
  */
 const MIN_FACE_AREA = 14_400; // px² (≈120×120); below → likely too far. Heuristic.
 
+/** Guidance shown when no face is detected; also the breadcrumb's "neutral" text. */
+export const NO_FACE_GUIDANCE = "Step in front of the camera";
+
 export function deriveGuidance(frame: CaptureFrame): string | null {
-  if (frame.numberOfFaces < 1) return "Step in front of the camera";
+  if (frame.numberOfFaces < 1) return NO_FACE_GUIDANCE;
   const bb = frame.boundingBox;
   if (bb && bb.width * bb.height < MIN_FACE_AREA) return "Move a little closer";
   if (frame.faceStatus === "spoof_suspected") return "Look directly at the camera";
@@ -145,7 +148,7 @@ export function guidanceForSnapshot(
     snap.boundingBox != null || snap.positioningFeedback != null;
   if (!hasSignal) return null;
   if (snap.numberOfFaces < 1) {
-    return { text: "Step in front of the camera", derived: true };
+    return { text: NO_FACE_GUIDANCE, derived: true };
   }
   const fb = snap.positioningFeedback;
   if (fb) {
@@ -199,4 +202,52 @@ export function shouldAdoptSession(
   scene: "idle" | "connecting" | "live",
 ): boolean {
   return !!status?.cameraOpen && scene === "idle";
+}
+
+/**
+ * Carried state for the "why did the face drop?" breadcrumb. `reason` is the last
+ * actionable correction seen while a face was present; `lastPresentAt` is when the
+ * face was last seen (the persistence countdown anchor); `seen` gates the breadcrumb
+ * so it never shows before any face has appeared.
+ */
+export interface FaceLostCarry {
+  reason: string | null;
+  lastPresentAt: number | null;
+  seen: boolean;
+}
+
+export const initialFaceLostCarry: FaceLostCarry = { reason: null, lastPresentAt: null, seen: false };
+
+/** How long (ms) a face-loss breadcrumb lingers after the face disappears. */
+export const FACE_LOST_WINDOW_MS = 5000;
+
+/**
+ * When the device suddenly reports no face, the bare "Step in front of the camera"
+ * hides WHY it dropped (e.g. the head tilted out of the detection envelope). This
+ * folds the latest observation into the carry and, for a few seconds after a loss,
+ * surfaces the last correction instead — so a subject understands what to fix.
+ *
+ * Pure and idempotent for a fixed `now` (safe to call during render). The caller
+ * supplies the normally-computed `baseGuidance`; this only overrides it post-loss.
+ */
+export function faceLostGuidance(
+  carry: FaceLostCarry,
+  opts: { facePresent: boolean; baseGuidance: string | null; now: number; windowMs?: number },
+): { text: string | null; carry: FaceLostCarry } {
+  const windowMs = opts.windowMs ?? FACE_LOST_WINDOW_MS;
+  if (opts.facePresent) {
+    // Remember an actionable correction; keep the prior one when currently well-positioned.
+    const reason = opts.baseGuidance && opts.baseGuidance !== NO_FACE_GUIDANCE
+      ? opts.baseGuidance
+      : carry.reason;
+    return { text: opts.baseGuidance, carry: { reason, lastPresentAt: opts.now, seen: true } };
+  }
+  if (carry.seen && carry.lastPresentAt != null && opts.now - carry.lastPresentAt < windowMs) {
+    return {
+      text: carry.reason ? `Face lost — ${carry.reason}` : "Face lost — moved out of view?",
+      carry,
+    };
+  }
+  // Window elapsed (or no face ever seen): revert to base guidance and forget the stale reason.
+  return { text: opts.baseGuidance, carry: initialFaceLostCarry };
 }
