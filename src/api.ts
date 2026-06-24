@@ -211,6 +211,15 @@ export interface FrameResponse {
   sessionGeneration: number;
 }
 
+export interface HighResMeta {
+  hasImage: boolean;
+  id?: string;
+  width?: number;
+  height?: number;
+  encoding?: ImageDatatype;
+  byteLength?: number;
+}
+
 /** Error carrying the backend's normalized envelope. */
 export class ApiError extends Error {
   readonly detail: NormalizedError;
@@ -309,4 +318,28 @@ export const api = {
 
   getVideoFrame: (lastSeq: string, signal?: AbortSignal) =>
     request<FrameResponse>(`/api/video-frame?lastSeq=${encodeURIComponent(lastSeq)}`, { signal }),
+
+  captureHighRes: (req: CaptureRequest, signal?: AbortSignal) =>
+    post<{ result: HighResMeta }>("/api/capture-high-res", req, signal),
+
+  /** Binary download — NOT via request<T> (that parses JSON). Sends the gate
+   *  header, returns a Blob on an image response, and throws ApiError when the
+   *  server returns a JSON error envelope (unknown/evicted id, not-connected). */
+  downloadHighResImage: async (id: string): Promise<Blob> => {
+    const res = await fetch(`/api/high-res-image/${encodeURIComponent(id)}`, {
+      headers: { "x-facepod-tester": "1" },
+    });
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!res.ok || contentType.includes("application/json")) {
+      let detail: NormalizedError = { name: "Error", message: `HTTP ${res.status}`, httpStatus: res.status };
+      try {
+        const body = await res.json();
+        if (body?.error) detail = body.error as NormalizedError;
+      } catch {
+        // non-JSON error body — keep the fallback detail
+      }
+      throw new ApiError(detail);
+    }
+    return await res.blob();
+  },
 };
