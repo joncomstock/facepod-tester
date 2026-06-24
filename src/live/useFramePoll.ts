@@ -58,6 +58,7 @@ export function useFramePoll(opts: Options): FramePollState {
 
   useEffect(() => {
     if (!opts.active) return;
+    let cancelled = false;
     runningRef.current = true;
     // Reset the cursor on every (re)activation. The poll lane reactivates after a
     // reconnect (scene goes idle→live), and a new session's seq can restart BELOW
@@ -66,14 +67,14 @@ export function useFramePoll(opts: Options): FramePollState {
     lastSeqRef.current = "-1";
     frameTimesRef.current = [];
     const loop = async () => {
-      while (runningRef.current && ref.current.active) {
+      while (!cancelled && runningRef.current && ref.current.active) {
         const ac = new AbortController();
         abortRef.current = ac;
         try {
           const p = api.getVideoFrame(lastSeqRef.current, ac.signal);
           inFlightRef.current = p;
           const resp = await p;
-          if (!runningRef.current) break;
+          if (cancelled || !runningRef.current) break;
           // Only advance the IMAGE + overlay alongside a FRESH frame (spec §5.2)...
           if (isFreshFrame(lastSeqRef.current, resp) && resp.frame) {
             lastSeqRef.current = nextLastSeq(lastSeqRef.current, resp);
@@ -94,7 +95,7 @@ export function useFramePoll(opts: Options): FramePollState {
           // still reach its fade/removal thresholds instead of sticking forever.
           setSnapshotAgeMs(resp.snapshotAgeMs);
         } catch (e) {
-          if (!runningRef.current) break; // aborted by stopAndDrain — not an error
+          if (cancelled || !runningRef.current) break; // aborted by stopAndDrain — not an error
           const detail = e instanceof ApiError
             ? e.detail
             : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
@@ -110,7 +111,7 @@ export function useFramePoll(opts: Options): FramePollState {
       }
     };
     void loop().catch(() => {});
-    return () => { void stopRef.current(); };
+    return () => { cancelled = true; void stopRef.current(); };
   }, [opts.active, opts.restartKey]);
 
   return { videoFrame, liveSnapshot, snapshotAgeMs, fps, stopAndDrain: () => stopRef.current() };
