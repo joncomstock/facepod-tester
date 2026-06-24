@@ -47,3 +47,8 @@ Errors (standard `{ "error": { name, message, httpStatus } }` envelope):
   the mock flow through), so the refusal behaviour is identical on hardware and in mock mode.
 - Mock mode emulates the envelope: widening a pose/distance limit past its default → `rejected`;
   a match threshold outside [0,1] → `clamped`; valid writes → `applied`.
+- A multi-key patch is applied per key, sequentially, and is **not transactional**: a per-key
+  clamp/reject is reported in `results` (no error), but a genuine device fault on a later key
+  returns an error envelope while earlier keys may already be written. Re-read
+  `GET /api/parameters` to reconcile (writes are context-scoped, so a reconnect resets them
+  anyway).
