@@ -310,6 +310,37 @@ app.post(
   }),
 );
 
+app.post(
+  "/api/capture-high-res",
+  handle(async (c) => {
+    const body = await readJson(c);
+    const result = await session.captureHighRes({
+      minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
+      maximalSpoofScore: num(body.maximalSpoofScore),
+      timeoutMs: num(body.timeoutMs),
+    }, c.req.raw.signal);
+    return c.json({ result });
+  }),
+);
+
+app.get(
+  "/api/high-res-image/:id",
+  handle((c) => {
+    const id = c.req.param("id") ?? "";
+    const img = session.takeHighResImage(id);
+    if (!img) {
+      // JSON error envelope (NOT image bytes) — the client's downloadHighResImage
+      // detects this via res.ok / content-type and throws ApiError.
+      return c.json(
+        { error: { name: "NotFoundError", message: "High-res image not found (unknown or already-fetched id).", httpStatus: 404 } },
+        404,
+      );
+    }
+    const contentType = img.format === "jpg" || img.format === "jpeg" ? "image/jpeg" : "image/png";
+    return new Response(img.bytes.buffer as ArrayBuffer, { headers: { "content-type": contentType } });
+  }),
+);
+
 // Optionally serve a built frontend (deno task build in src/ → dist/). When dist
 // is absent (the common dev case), we just skip it and rely on the Vite server.
 let distAvailable = false;
