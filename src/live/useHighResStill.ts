@@ -3,6 +3,26 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api, ApiError, type CaptureRequest, type HighResMeta, type NormalizedError } from "../api.ts";
 import { highResFilename, INITIAL_HIGH_RES, nextHighResState, type HighResState } from "./highResStill.ts";
 
+const BUSY_RETRY_ATTEMPTS = 10; // ~10 * 250ms = 2.5s, covers the watch loop's ≤1500ms capture timeout
+const BUSY_RETRY_DELAY_MS = 250;
+
+async function captureHighResRidingBusy(req: CaptureRequest): Promise<{ result: HighResMeta }> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= BUSY_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await api.captureHighRes(req);
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof ApiError && e.detail.name === "BusyError" && attempt < BUSY_RETRY_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, BUSY_RETRY_DELAY_MS));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr; // unreachable, satisfies the type checker
+}
+
 interface Options {
   /** Free the device op-lock for the duration of the capture (pause the watch loop). */
   pauseWatch: () => void;
@@ -39,7 +59,7 @@ export function useHighResStill({ pauseWatch, resumeWatch, onError }: Options): 
     dispatch({ type: "start" });
     pauseWatch();
     try {
-      const { result } = await api.captureHighRes(req);
+      const { result } = await captureHighResRidingBusy(req);
       if (!result.hasImage || !result.id) {
         dispatch({ type: "noFace" });
         return;
