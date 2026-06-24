@@ -10,7 +10,9 @@ import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
 import type { ModeId } from "../../live/modes.ts";
+import { useHighResStill } from "../../live/useHighResStill.ts";
 import { ModeSwitch } from "./ModeSwitch.tsx";
+import { HighResControls } from "./HighResControls.tsx";
 import { VerifyMode } from "./VerifyMode.tsx";
 
 type Scene = "idle" | "connecting" | "live";
@@ -48,6 +50,14 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const adoptedRef = useRef(false); // one-time session adoption (see effect below)
 
   const hasReference = refTemplate !== null;
+
+  // streamMode: device CAMERA_STREAM_MODE; 0 = RGB, non-zero = IR (read-only display).
+  const streamMode = (deviceParams?.streamMode ?? 0) === 0 ? "RGB" : "IR";
+  const hr = useHighResStill({
+    pauseWatch: () => setWatching(false),
+    resumeWatch: () => setWatching(true),
+    onError,
+  });
 
   const captureAgeMs = frameAt == null ? null : now - frameAt;
   const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
@@ -153,6 +163,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setRefTemplate(null);
     setRefThumb(null);
     setRefLabel(null);
+    hr.discard();         // revoke any held high-res still blob
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
@@ -328,6 +339,19 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           onClearReference={() => { setRefTemplate(null); setRefThumb(null); setRefLabel(null); }}
           onEnd={endSession}
           onUseCurrentFace={useCurrentFace}
+          highResSlot={
+            <HighResControls
+              active={scene === "live" && watching && mode === "verify"}
+              streamMode={streamMode}
+              hr={hr}
+              captureReq={{
+                minimalQuality: thresholds.minimalQuality,
+                maximalSpoofScore: thresholds.maximalSpoofScore,
+                timeoutMs: thresholds.timeoutMs,
+              }}
+              onOpenTune={() => {}} // Task 8 wires the Tune drawer
+            />
+          }
         />
       )}
       {mode === "identify" && <div className="mode-pane" />}
