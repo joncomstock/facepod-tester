@@ -501,3 +501,50 @@ Deno.test("disconnect drains an in-flight capture instead of throwing BusyError"
   assertEquals(s.connected, false);
   await capP.catch(() => {}); // let the capture settle
 });
+
+Deno.test("captureHighRes (mock) returns metadata with an id; no-face -> hasImage:false", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+
+  const meta = await s.captureHighRes({ minimalQuality: 0.5 });
+  assert(meta.hasImage);
+  assert(typeof meta.id === "string" && meta.id.length > 0);
+  assertEquals(meta.encoding, "png");
+
+  s.setMockScenario("no-face");
+  const none = await s.captureHighRes({ minimalQuality: 0.5 });
+  assertEquals(none.hasImage, false);
+  assertEquals(none.id, undefined);
+
+  await s.disconnect();
+});
+
+Deno.test("takeHighResImage is one-shot and cleared on disconnect", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const meta = await s.captureHighRes({ minimalQuality: 0.5 });
+  assert(meta.id);
+
+  const first = s.takeHighResImage(meta.id!);
+  assert(first && first.bytes.length > 0);
+  assertEquals(s.takeHighResImage(meta.id!), null); // already fetched
+
+  const again = await s.captureHighRes({ minimalQuality: 0.5 });
+  await s.disconnect();
+  assertEquals(s.takeHighResImage(again.id!), null); // cleared on teardown
+});
+
+Deno.test("captureHighRes keeps multiple ids fetchable (keyed buffer, not latest-only)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const a = await s.captureHighRes({ minimalQuality: 0.5 });
+  const b = await s.captureHighRes({ minimalQuality: 0.5 });
+  assert(a.id && b.id && a.id !== b.id);
+  // Finding Medium-2: a second capture must NOT invalidate the first un-fetched id.
+  assert(s.takeHighResImage(a.id!));
+  assert(s.takeHighResImage(b.id!));
+  await s.disconnect();
+});

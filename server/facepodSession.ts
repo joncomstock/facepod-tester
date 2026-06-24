@@ -74,6 +74,15 @@ export interface CaptureAndMatchResult {
   match: MatchResult;
 }
 
+export interface HighResMeta {
+  hasImage: boolean;
+  id?: string;
+  width?: number;
+  height?: number;
+  encoding?: ImageDatatype;
+  byteLength?: number;
+}
+
 /** Throw a 409-mapped "not connected" error (no live lifecycle). */
 function notConnected(): never {
   const e = new Error(
@@ -137,6 +146,14 @@ export class FacePodSession {
   #latestSnapshot:
     | { snapshot: LiveSnapshot; captureId: number; monotonicAtWrite: number }
     | null = null;
+  // High-res still buffer: captured 4K images keyed by a UUID handle (spec §94 — "keyed
+  // by the handle", NOT a single latest slot, so a second capture never invalidates an
+  // un-downloaded first). In-memory only (PII: never written to disk); one-shot (evicted on
+  // fetch), lazily TTL-expired, and capped so undownloaded ~7 MB stills can't accumulate.
+  // Cleared on teardown.
+  #highRes = new Map<string, { bytes: Uint8Array; format: ImageDatatype; createdAt: number }>();
+  readonly #highResTtlMs = 60_000;
+  readonly #highResMax = 4;
   readonly #makeLifecycle: LifecycleFactory;
   readonly #drainOpMs: number;
   readonly #drainFrameMs: number;
@@ -437,6 +454,7 @@ export class FacePodSession {
       this.#mock = false;
       this.#cameraOpen = false;
       this.#latestSnapshot = null;
+      this.#highRes.clear();
     }
   }
 
@@ -497,6 +515,49 @@ export class FacePodSession {
         },
       );
     });
+  }
+
+  captureHighRes(params: CaptureParams, signal?: AbortSignal): Promise<HighResMeta> {
+    return this.#track(async () => {
+      const r = await this.#require().device.captureHighRes(
+        {
+          minimalQuality: params.minimalQuality,
+          maximalSpoofScore: params.maximalSpoofScore,
+          timeoutMs: params.timeoutMs,
+        },
+        signal,
+      );
+      if (!r.hasImage || !r.bytes) return { hasImage: false };
+      this.#sweepHighRes();
+      const id = crypto.randomUUID();
+      const format = r.format ?? "png";
+      this.#highRes.set(id, { bytes: r.bytes, format, createdAt: Date.now() });
+      // Cap memory: a Map preserves insertion order, so the first key is the oldest.
+      while (this.#highRes.size > this.#highResMax) {
+        const oldest = this.#highRes.keys().next().value as string;
+        this.#highRes.delete(oldest);
+      }
+      return { hasImage: true, id, width: r.width, height: r.height, encoding: format, byteLength: r.bytes.length };
+    });
+  }
+
+  /** Take a buffered high-res image by id (one-shot: evicts on fetch). Bypasses #track —
+   *  it reads buffered JS bytes, touches no native handle. Returns null for an unknown,
+   *  already-fetched, or TTL-expired id. */
+  takeHighResImage(id: string): { bytes: Uint8Array; format: ImageDatatype } | null {
+    this.#sweepHighRes();
+    const h = this.#highRes.get(id);
+    if (!h) return null;
+    this.#highRes.delete(id); // one-shot eviction
+    return { bytes: h.bytes, format: h.format };
+  }
+
+  /** Drop TTL-expired high-res entries (lazy: called on capture + fetch). */
+  #sweepHighRes(): void {
+    const now = Date.now();
+    for (const [id, h] of this.#highRes) {
+      if (now - h.createdAt > this.#highResTtlMs) this.#highRes.delete(id);
+    }
   }
 
   processImage(
