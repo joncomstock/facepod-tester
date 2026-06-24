@@ -14,6 +14,7 @@ import { useHighResStill } from "../../live/useHighResStill.ts";
 import { ModeSwitch } from "./ModeSwitch.tsx";
 import { HighResControls } from "./HighResControls.tsx";
 import { VerifyMode } from "./VerifyMode.tsx";
+import { IdentifyMode } from "./IdentifyMode.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -354,7 +355,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           }
         />
       )}
-      {mode === "identify" && <div className="mode-pane" />}
+      {mode === "identify" && <IdentifyMode />}
       {mode === "console" && <div className="mode-pane" />}
     </div>
   );

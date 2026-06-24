@@ -982,3 +982,69 @@ details.json pre {
 .hr-preview img { max-width: 100%; max-height: 100%; border-radius: 12px; border: 1px solid hsl(var(--border)); }
 @keyframes fp-flash { 0% { opacity: 0; } 12% { opacity: 0.85; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hr-preview img { animation: none; } }
+
+/* ---- Identify mode (Slice 4 stub) ---- */
+.mode-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 14px 16px;
+  min-height: 0;
+}
+
+/* Eyebrow label — uppercase tracking heading above gallery/sections. */
+.pane-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Empty-state block — centered, muted, for "no enrolled templates". */
+.gallery-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  border: 1px dashed hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Identify dock buttons — styled like dock buttons but disabled/reduced-opacity. */
+.identify-dock {
+  display: flex;
+  gap: 10px;
+}
+
+.big-btn,
+.enroll-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border-radius: 12px;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: not-allowed;
+  opacity: 0.38;
+  border: 1px solid hsl(var(--border));
+}
+
+.big-btn {
+  flex: 1;
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.3);
+}
+
+.enroll-btn {
+  flex: 1;
+  background: hsl(var(--accent));
+  color: hsl(var(--muted-foreground));
+}
