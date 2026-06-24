@@ -15,6 +15,7 @@ import { ModeSwitch } from "./ModeSwitch.tsx";
 import { HighResControls } from "./HighResControls.tsx";
 import { VerifyMode } from "./VerifyMode.tsx";
 import { IdentifyMode } from "./IdentifyMode.tsx";
+import { ConsoleMode } from "./ConsoleMode.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -356,7 +357,13 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         />
       )}
       {mode === "identify" && <IdentifyMode />}
-      {mode === "console" && <div className="mode-pane" />}
+      {mode === "console" && (
+        <ConsoleMode
+          deviceParams={deviceParams ?? null}
+          deviceParamsError={deviceParamsError ?? null}
+          onOpenTune={() => {}}
+        />
+      )}
     </div>
   );
 }

@@ -983,7 +983,7 @@ details.json pre {
 @keyframes fp-flash { 0% { opacity: 0; } 12% { opacity: 0.85; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hr-preview img { animation: none; } }
 
-/* ---- Identify mode (Slice 4 stub) ---- */
+/* ---- Shared by all mode panes (Identify, Console, …) ---- */
 .mode-pane {
   flex: 1;
   display: flex;
@@ -1047,4 +1047,78 @@ details.json pre {
   flex: 1;
   background: hsl(var(--accent));
   color: hsl(var(--muted-foreground));
+}
+
+/* ---- Console mode ---- */
+.console-params {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(0 0% 10%);
+}
+.params-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.params-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 18px;
+}
+.param-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid hsl(var(--border) / 0.6);
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.param-row span:first-child { flex: 1; }
+.param-v {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: hsl(0 0% 88%);
+  white-space: nowrap;
+}
+.params-empty {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  padding: 8px 0;
+}
+.tune-link {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tune-link:hover { background: hsl(var(--primary) / 0.18); }
+.console-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.diag-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(0 0% 11%);
+  color: hsl(var(--muted-foreground));
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: not-allowed;
+  opacity: 0.45;
 }
