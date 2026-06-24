@@ -337,7 +337,7 @@ app.get(
       );
     }
     const contentType = img.format === "jpg" || img.format === "jpeg" ? "image/jpeg" : "image/png";
-    return new Response(img.bytes.buffer as ArrayBuffer, { headers: { "content-type": contentType } });
+    return new Response(img.bytes as unknown as BodyInit, { headers: { "content-type": contentType } });
   }),
 );
 
