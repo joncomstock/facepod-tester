@@ -9,10 +9,14 @@ import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot, sh
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
 import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
-import { Feed } from "./Feed.tsx";
-import { Telemetry } from "./Telemetry.tsx";
-import { ActionDock } from "./ActionDock.tsx";
-import { LiveDataDisclosure } from "./LiveDataDisclosure.tsx";
+import type { ModeId } from "../../live/modes.ts";
+import { useHighResStill } from "../../live/useHighResStill.ts";
+import { ModeSwitch } from "./ModeSwitch.tsx";
+import { HighResControls } from "./HighResControls.tsx";
+import { VerifyMode } from "./VerifyMode.tsx";
+import { IdentifyMode } from "./IdentifyMode.tsx";
+import { ConsoleMode } from "./ConsoleMode.tsx";
+import { TuneDrawer } from "./TuneDrawer.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -30,6 +34,8 @@ interface Props {
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
 export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
+  const [tuneOpen, setTuneOpen] = useState(false);
+  const [mode, setMode] = useState<ModeId>("verify");
   const [watching, setWatching] = useState(false);
   const [restoredNotice, setRestoredNotice] = useState(false); // one-time "session restored" banner
   const [frame, setFrame] = useState<CaptureFrame | null>(null);
@@ -49,6 +55,14 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
 
   const hasReference = refTemplate !== null;
 
+  // streamMode: device CAMERA_STREAM_MODE; 0 = RGB, non-zero = IR (read-only display).
+  const streamMode = (deviceParams?.streamMode ?? 0) === 0 ? "RGB" : "IR";
+  const hr = useHighResStill({
+    pauseWatch: () => setWatching(false),
+    resumeWatch: () => setWatching(true),
+    onError,
+  });
+
   const captureAgeMs = frameAt == null ? null : now - frameAt;
   const videoAgeMs = videoFrameAt == null ? null : now - videoFrameAt;
   const sinceStartMs = watchStartedAt == null ? null : now - watchStartedAt;
@@ -65,7 +79,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     : { state: "searching" as const, reasons: [] };
 
   const { stopAndDrain: stopWatch } = useWatchLoop({
-    active: watching && scene === "live",
+    active: watching && scene === "live" && mode === "verify",
     refTemplate,
     thresholds,
     onFrame: (f) => { setFrame(f); setFrameAt(performance.now()); },
@@ -76,7 +90,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   });
 
   const { videoFrame, liveSnapshot, snapshotAgeMs, fps, stopAndDrain: stopFrames } = useFramePoll({
-    active: scene === "live" && watching,
+    active: scene === "live" && watching && mode === "verify",
     sessionGeneration: status?.sessionGeneration ?? 0,
     onError,
     restartKey: feedEpoch,
@@ -153,6 +167,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setRefTemplate(null);
     setRefThumb(null);
     setRefLabel(null);
+    setTuneOpen(false);
+    hr.discard();         // revoke any held high-res still blob
     setScene("idle");
     onClearParams?.();
     onSessionChange?.();
@@ -295,37 +311,30 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           <button className="icon-btn" aria-label="Dismiss notice" onClick={() => setRestoredNotice(false)}>✕</button>
         </div>
       )}
-      <div className="live-grid">
-        <div className="live-left">
-          <Feed frame={frame} verdict={verdict} guidance={guidance} videoFrame={videoFrame} liveFaces={liveFaces} overlay={overlay} onNaturalSize={setFrameNat} status={feedStatus} />
-          <Telemetry frame={frame} liveQuality={liveSnapshot?.quality ?? null} thresholds={thresholds} hasReference={hasReference} deviceParams={deviceParams ?? null} status={captureStatus} />
-          <p className="footnote">
-            {guidanceDerived
-              ? "Guidance derived in-UI from face size/status — not HID-measured."
-              : "Guidance from the device's positioning feedback."}
-            {deviceParams
-              ? <> Device thresholds shown as the dashed tick. <button className="link-btn" onClick={refreshParams}>Refresh</button></>
-              : deviceParamsError
-                ? ` Device parameters unavailable: ${deviceParamsError}`
-                : null}
-          </p>
-        </div>
-        <div className="live-right">
-          <LiveDataDisclosure
-            frame={frame}
-            frameNat={frameNat}
-            videoDatatype={videoFrame?.datatype ?? null}
-            fps={fps}
-            brightness={brightness}
-            distance={distance}
-            hasReference={hasReference}
-            captureStatus={captureStatus}
-            videoStatus={feedStatus}
-          />
-        </div>
-      </div>
-      <div className="live-dock">
-        <ActionDock
+      <ModeSwitch mode={mode} onPick={setMode} />
+      {mode === "verify" && (
+        <VerifyMode
+          frame={frame}
+          verdict={verdict}
+          guidance={guidance}
+          guidanceDerived={guidanceDerived}
+          videoFrame={videoFrame}
+          liveFaces={liveFaces}
+          overlay={overlay}
+          onNaturalSize={setFrameNat}
+          feedStatus={feedStatus}
+          captureStatus={captureStatus}
+          liveQuality={liveSnapshot?.quality ?? null}
+          brightness={brightness}
+          distance={distance}
+          fps={fps}
+          frameNat={frameNat}
+          videoDatatype={videoFrame?.datatype ?? null}
+          thresholds={thresholds}
+          hasReference={hasReference}
+          deviceParams={deviceParams ?? null}
+          deviceParamsError={deviceParamsError ?? null}
+          onRefreshParams={refreshParams}
           watching={watching}
           referenceThumb={refThumb}
           referenceLabel={refLabel}
@@ -335,8 +344,35 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
           onClearReference={() => { setRefTemplate(null); setRefThumb(null); setRefLabel(null); }}
           onEnd={endSession}
           onUseCurrentFace={useCurrentFace}
+          highResSlot={
+            <HighResControls
+              active={scene === "live" && watching && mode === "verify"}
+              streamMode={streamMode}
+              hr={hr}
+              captureReq={{
+                minimalQuality: thresholds.minimalQuality,
+                maximalSpoofScore: thresholds.maximalSpoofScore,
+                timeoutMs: thresholds.timeoutMs,
+              }}
+              onOpenTune={() => setTuneOpen(true)}
+            />
+          }
         />
-      </div>
+      )}
+      {mode === "identify" && <IdentifyMode />}
+      {mode === "console" && (
+        <ConsoleMode
+          deviceParams={deviceParams ?? null}
+          deviceParamsError={deviceParamsError ?? null}
+          onOpenTune={() => setTuneOpen(true)}
+        />
+      )}
+      <TuneDrawer
+        open={tuneOpen}
+        onClose={() => setTuneOpen(false)}
+        deviceParams={deviceParams ?? null}
+        narrow={false}
+      />
     </div>
   );
 }

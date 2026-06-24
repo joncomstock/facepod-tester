@@ -36,10 +36,14 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
 
   useEffect(() => {
     if (!opts.active) return;
+    // Per-effect-run guard: `runningRef` is shared across effect runs, so a rapid
+    // active re-toggle could revive THIS (stale) loop after cleanup. `cancelled` is
+    // closed over per run and can't be flipped back true, so a superseded loop stays dead.
+    let cancelled = false;
     runningRef.current = true;
 
     const loop = async () => {
-      while (runningRef.current && ref.current.active) {
+      while (!cancelled && runningRef.current && ref.current.active) {
         const { thresholds, refTemplate, onFrame, onError } = ref.current;
         const ac = new AbortController();
         abortRef.current = ac;
@@ -64,10 +68,10 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
             const m = await matchP;
             match = m.result;
           }
-          if (!runningRef.current) break;
+          if (cancelled || !runningRef.current) break;
           onFrame(toCaptureFrame(cap.result, match));
         } catch (e) {
-          if (!runningRef.current) break; // aborted by stopAndDrain — not an error
+          if (cancelled || !runningRef.current) break; // aborted by stopAndDrain — not an error
           const detail = e instanceof ApiError
             ? e.detail
             : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
@@ -83,7 +87,7 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
     };
     void loop().catch(() => {});
 
-    return () => { void stopRef.current(); };
+    return () => { cancelled = true; void stopRef.current(); };
   }, [opts.active]);
 
   return { stopAndDrain: () => stopRef.current() };
