@@ -25,7 +25,7 @@ import { checkRequestGate, TESTER_HEADER } from "./security.ts";
 import { FacePodSession } from "./facepodSession.ts";
 import { isMockScenario, MOCK_SCENARIOS } from "./mockClient.ts";
 import { toFramePayload } from "./videoFramePayload.ts";
-import type { ImageDatatype } from "@eai/hid/facepod";
+import type { DeviceParametersPatch, ImageDatatype } from "@eai/hid/facepod";
 
 const session = new FacePodSession();
 
@@ -320,6 +320,21 @@ app.post(
       timeoutMs: num(body.timeoutMs),
     }, c.req.raw.signal);
     return c.json({ result });
+  }),
+);
+
+app.post(
+  "/api/parameters",
+  handle(async (c) => {
+    const body = await readJson(c);
+    // Pass through every finite-number field; the lib facade refuses non-allowlisted
+    // keys loudly (→ 422), so we do NOT silently pre-filter to the allowlist here.
+    const patch: Record<string, number> = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (typeof v === "number" && Number.isFinite(v)) patch[k] = v;
+    }
+    const result = await session.setParameters(patch as DeviceParametersPatch);
+    return c.json(result);
   }),
 );
 
