@@ -120,6 +120,30 @@ export interface DeviceParameters {
   encodingJpegQuality: number;
 }
 
+/** The safe, reversible subset of parameters the UI may write (mirrors the lib's
+ *  DeviceParametersPatch — see docs/parameters-contract.md). */
+export type DeviceParametersPatch = Partial<
+  Pick<
+    DeviceParameters,
+    | "streamMode"
+    | "minDistance" | "maxDistance"
+    | "minRoll" | "maxRoll" | "minPitch" | "maxPitch" | "minYaw" | "maxYaw"
+    | "recMinMatchScoreL1" | "recMinMatchScoreL2" | "recMinMatchScoreL3"
+  >
+>;
+
+export type ParameterWriteStatus = "applied" | "clamped" | "rejected";
+
+export interface ParameterWriteResult {
+  requested: number;
+  effective: number;
+  status: ParameterWriteStatus;
+}
+
+export interface SetParametersResult {
+  results: Partial<Record<keyof DeviceParametersPatch, ParameterWriteResult>>;
+}
+
 export interface CaptureResult {
   quality: number;
   numberOfFaces: number;
@@ -286,6 +310,9 @@ export const api = {
   getCameras: () => request<{ cameras: CameraInfo[] }>("/api/cameras"),
 
   getParameters: () => request<{ parameters: DeviceParameters }>("/api/parameters"),
+
+  setParameters: (patch: DeviceParametersPatch, signal?: AbortSignal) =>
+    post<SetParametersResult>("/api/parameters", patch, signal),
 
   openCamera: (req: {
     cameraId?: string;
