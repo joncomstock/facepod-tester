@@ -567,7 +567,8 @@ details.json pre {
 /* ================= Live HUD ================= */
 /* live-shell fills the area under the header: idle/connecting center their scene; the
    live scene stacks a two-column grid over a full-width dock bar. */
-.live-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+/* .live-shell needs position:relative so the absolute overlay stays within the HUD. */
+.live-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; position: relative; }
 
 /* Two-pane live layout: feed + gauges (left, ~60%), Frame Data (right, ~40%). The grid
    takes the remaining height above the dock; the dock is a full-width sibling bar. */
@@ -1124,8 +1125,6 @@ details.json pre {
 }
 
 /* ---- Tune drawer ---- */
-/* Anchor: .live-shell needs position:relative so the absolute overlay stays within the HUD. */
-.live-shell { position: relative; }
 
 .tune-overlay {
   position: absolute;
