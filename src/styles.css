@@ -1122,3 +1122,82 @@ details.json pre {
   cursor: not-allowed;
   opacity: 0.45;
 }
+
+/* ---- Tune drawer ---- */
+/* Anchor: .live-shell needs position:relative so the absolute overlay stays within the HUD. */
+.live-shell { position: relative; }
+
+.tune-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  background: hsl(0 0% 0% / 0.5);
+  display: flex;
+  justify-content: flex-end;
+}
+.tune-panel {
+  width: 400px;
+  height: 100%;
+  overflow-y: auto;
+  background: hsl(0 0% 8%);
+  border-left: 1px solid hsl(var(--border));
+  padding: 22px;
+  animation: fp-slide .25s ease both;
+}
+.tune-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tune-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+.tune-sub {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+}
+.tune-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 16px;
+}
+.tune-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.6);
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.tune-v {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: hsl(0 0% 88%);
+  white-space: nowrap;
+}
+@keyframes fp-slide {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tune-panel { animation: none; }
+}
+@media (max-width: 560px) {
+  .tune-overlay { align-items: flex-end; justify-content: center; }
+  .tune-panel {
+    width: 100%;
+    height: auto;
+    max-height: 90vh;
+    border-left: none;
+    border-top: 1px solid hsl(var(--border));
+    border-radius: 18px 18px 0 0;
+  }
+}

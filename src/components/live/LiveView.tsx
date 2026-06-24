@@ -16,6 +16,7 @@ import { HighResControls } from "./HighResControls.tsx";
 import { VerifyMode } from "./VerifyMode.tsx";
 import { IdentifyMode } from "./IdentifyMode.tsx";
 import { ConsoleMode } from "./ConsoleMode.tsx";
+import { TuneDrawer } from "./TuneDrawer.tsx";
 
 type Scene = "idle" | "connecting" | "live";
 
@@ -33,6 +34,7 @@ interface Props {
 /** The Live HUD: one-tap Go Live → continuous watch → telemetry + verdict. */
 export function LiveView({ status, thresholds, onError, onSessionChange, deviceParams, deviceParamsError, onFetchParams, onClearParams }: Props) {
   const [scene, setScene] = useState<Scene>(status?.cameraOpen ? "live" : "idle");
+  const [tuneOpen, setTuneOpen] = useState(false);
   const [mode, setMode] = useState<ModeId>("verify");
   const [watching, setWatching] = useState(false);
   const [restoredNotice, setRestoredNotice] = useState(false); // one-time "session restored" banner
@@ -165,6 +167,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     setRefTemplate(null);
     setRefThumb(null);
     setRefLabel(null);
+    setTuneOpen(false);
     hr.discard();         // revoke any held high-res still blob
     setScene("idle");
     onClearParams?.();
@@ -351,7 +354,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
                 maximalSpoofScore: thresholds.maximalSpoofScore,
                 timeoutMs: thresholds.timeoutMs,
               }}
-              onOpenTune={() => {}} // Task 8 wires the Tune drawer
+              onOpenTune={() => setTuneOpen(true)}
             />
           }
         />
@@ -361,9 +364,15 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
         <ConsoleMode
           deviceParams={deviceParams ?? null}
           deviceParamsError={deviceParamsError ?? null}
-          onOpenTune={() => {}}
+          onOpenTune={() => setTuneOpen(true)}
         />
       )}
+      <TuneDrawer
+        open={tuneOpen}
+        onClose={() => setTuneOpen(false)}
+        deviceParams={deviceParams ?? null}
+        narrow={false}
+      />
     </div>
   );
 }
