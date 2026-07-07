@@ -4,6 +4,7 @@ import {
   FaceModuleApiError,
   NotConnectedError,
   UnsupportedDatatypeError,
+  UnsupportedDiagnosticError,
 } from "@eai/hid/facepod";
 import { ConfigError } from "./config.ts";
 
@@ -41,6 +42,12 @@ Deno.test("normalizeError: UnsupportedDatatypeError carries datatype, maps to 42
   const n = normalizeError(new UnsupportedDatatypeError("iso19794-5:2011"));
   assertEquals(n.name, "UnsupportedDatatypeError");
   assertEquals(n.datatype, "iso19794-5:2011");
+  assertEquals(n.httpStatus, 422);
+});
+
+Deno.test("normalizeError: UnsupportedDiagnosticError maps to 422", () => {
+  const n = normalizeError(new UnsupportedDiagnosticError(["reboot"]));
+  assertEquals(n.name, "UnsupportedDiagnosticError");
   assertEquals(n.httpStatus, 422);
 });
 

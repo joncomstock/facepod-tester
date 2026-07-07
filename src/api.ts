@@ -173,6 +173,36 @@ export interface MatchResult {
   matchScore: number;
 }
 
+export type DiagnosticLogCode =
+  | "nethfapiHttp" | "jengine" | "secureEvents" | "authentication"
+  | "dbSync" | "dbAudit" | "hfapi" | "fwUpdate" | "cameraAccess"
+  | "illumination" | "hfapiError";
+
+export interface DiagnosticsWire {
+  ok: boolean;
+  match: boolean;
+  sentHex: string;
+  receivedHex: string;
+  sentLen: number;
+  receivedLen: number;
+}
+
+export interface LogEntry {
+  raw: string;
+  parsed?: unknown;
+  parseError?: string;
+}
+
+export interface LogPage {
+  code: DiagnosticLogCode;
+  entries: LogEntry[];
+  nextCursor: number | null;
+  truncated: boolean;
+  byteLength: number;
+  sourceByteLength: number;
+  truncatedBytes: number;
+}
+
 // ---- Backend envelopes -----------------------------------------------------
 
 export interface SessionStatus {
@@ -348,6 +378,15 @@ export const api = {
 
   captureHighRes: (req: CaptureRequest, signal?: AbortSignal) =>
     post<{ result: HighResMeta }>("/api/capture-high-res", req, signal),
+
+  getDiagnostics: () => request<DiagnosticsWire>("/api/diagnostics"),
+
+  getLogs: (code: DiagnosticLogCode, opts: { cursor?: number; limit?: number } = {}, signal?: AbortSignal) => {
+    const q = new URLSearchParams({ code });
+    if (opts.cursor !== undefined) q.set("cursor", String(opts.cursor));
+    if (opts.limit !== undefined) q.set("limit", String(opts.limit));
+    return request<LogPage>(`/api/logs?${q.toString()}`, { signal });
+  },
 
   /** Binary download — NOT via request<T> (that parses JSON). Sends the gate
    *  header, returns a Blob on an image response, and throws ApiError when the

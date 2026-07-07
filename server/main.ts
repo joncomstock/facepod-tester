@@ -25,44 +25,25 @@ import { checkRequestGate, TESTER_HEADER } from "./security.ts";
 import { FacePodSession } from "./facepodSession.ts";
 import { isMockScenario, MOCK_SCENARIOS } from "./mockClient.ts";
 import { toFramePayload } from "./videoFramePayload.ts";
-import type { DeviceParametersPatch, ImageDatatype } from "@eai/hid/facepod";
+import { toDiagnosticsWire } from "./diagnosticsWire.ts";
+import { type LogPage, parseLogQuery, toLogEntries } from "./logEntries.ts";
+import type {
+  DeviceParametersPatch,
+  DiagnosticLogCode,
+  ImageDatatype,
+} from "@eai/hid/facepod";
 
-const session = new FacePodSession();
-
-// Base config from env, read once at startup. /api/connect may override per call.
-// A `--mock` CLI flag forces mock mode too — it's the cross-platform equivalent
-// of FACEPOD_MOCK=true (the POSIX env-prefix form breaks under cmd.exe, and this
-// tester runs on the Windows device).
+// Base config from env, read once at import. /api/connect may override per
+// call. A `--mock` CLI flag forces mock mode too — it's the cross-platform
+// equivalent of FACEPOD_MOCK=true (the POSIX env-prefix form breaks under
+// cmd.exe, and this tester runs on the Windows device). Pure env/arg reads —
+// no I/O, so importing this module (e.g. from a test) stays side-effect-free.
 const envConfig: ConnectInput = configFromEnv(Deno.env.toObject());
 if (Deno.args.includes("--mock")) envConfig.mock = true;
 
 // Loopback-only port. The server binds 127.0.0.1 (below) so it is never exposed
 // on the LAN; this is an unauthenticated local hardware-control API.
 const port = Number(Deno.env.get("PORT") ?? "8787");
-
-const app = new Hono();
-
-// Frontend talks to us same-origin via the Vite proxy. CORS is locked to the
-// loopback dev/backend origins ONLY — a wildcard would let any page in the
-// operator's browser drive the device (no auth on this API).
-app.use("/api/*", cors({ origin: allowedOrigins(port) }));
-
-// CORS headers alone don't stop "simple" cross-site requests from reaching the
-// server and triggering device actions. Gate every /api/* route on a custom
-// header + JSON content-type, which a drive-by page cannot satisfy. See
-// security.ts. Runs after CORS (so preflight is handled) and before any route.
-app.use("/api/*", async (c, next) => {
-  const rejection = checkRequestGate({
-    method: c.req.method,
-    path: c.req.path,
-    testerHeader: c.req.header(TESTER_HEADER),
-    contentType: c.req.header("content-type"),
-  });
-  if (rejection) {
-    return c.json({ error: rejection }, rejection.httpStatus as 403);
-  }
-  await next();
-});
 
 /** Wrap a handler so any thrown value becomes a normalized error envelope. */
 function handle(fn: (c: Context) => Promise<Response> | Response) {
@@ -133,268 +114,367 @@ function requireStr(value: unknown, field: string): string {
   return value;
 }
 
-// ---- Routes ---------------------------------------------------------------
+/**
+ * Build the Hono app: middleware (CORS + security gate) and every route.
+ * Synchronous and side-effect-free (no I/O, no server boot) so tests can
+ * `createApp(session)` and drive it directly via `app.request(...)`.
+ *
+ * `opts.distAvailable` gates the built-frontend static serving + SPA
+ * fallback — callers resolve that (an async `Deno.stat` probe) themselves
+ * and pass the result in; it must stay registered AFTER the /api routes so
+ * the SPA fallback never shadows an API route.
+ */
+export function createApp(
+  session: FacePodSession,
+  opts: { distAvailable?: boolean } = {},
+): Hono {
+  const app = new Hono();
 
-app.get("/api/health", (c) => c.json({ ok: true }));
+  // Frontend talks to us same-origin via the Vite proxy. CORS is locked to the
+  // loopback dev/backend origins ONLY — a wildcard would let any page in the
+  // operator's browser drive the device (no auth on this API).
+  app.use("/api/*", cors({ origin: allowedOrigins(port) }));
 
-app.get("/api/status", (c) => c.json(session.status()));
-
-app.post(
-  "/api/connect",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const override: ConnectInput = {
-      dllPath: typeof body.dllPath === "string" ? body.dllPath : undefined,
-      dllDir: typeof body.dllDir === "string" ? body.dllDir : undefined,
-      pollIntervalMs: typeof body.pollIntervalMs === "number"
-        ? body.pollIntervalMs
-        : undefined,
-      // mock can be forced from env; allow the UI to opt in too.
-      mock: typeof body.mock === "boolean" ? body.mock : undefined,
-      mockScenario: typeof body.mockScenario === "string"
-        ? body.mockScenario
-        : undefined,
-    };
-    const resolved = resolveConfig(envConfig, override);
-    const info = await session.connect(resolved);
-    return c.json({ deviceInfo: info, status: session.status() });
-  }),
-);
-
-app.post(
-  "/api/disconnect",
-  handle(async (c) => {
-    await session.disconnect();
-    return c.json({ status: session.status() });
-  }),
-);
-
-app.get(
-  "/api/device-info",
-  handle(async (c) => c.json({ deviceInfo: await session.getInfo() })),
-);
-
-app.get(
-  "/api/cameras",
-  handle(async (c) => c.json({ cameras: await session.getCameras() })),
-);
-
-app.get(
-  "/api/parameters",
-  handle(async (c) => c.json({ parameters: await session.getParameters() })),
-);
-
-app.get(
-  "/api/video-frame",
-  handle(async (c) => {
-    const raw = c.req.query("lastSeq");
-    let lastSeq: bigint | undefined;
-    try {
-      lastSeq = raw != null && raw !== "" ? BigInt(raw) : undefined;
-    } catch {
-      lastSeq = undefined; // malformed cursor → treat as "latest"
+  // CORS headers alone don't stop "simple" cross-site requests from reaching the
+  // server and triggering device actions. Gate every /api/* route on a custom
+  // header + JSON content-type, which a drive-by page cannot satisfy. See
+  // security.ts. Runs after CORS (so preflight is handled) and before any route.
+  app.use("/api/*", async (c, next) => {
+    const rejection = checkRequestGate({
+      method: c.req.method,
+      path: c.req.path,
+      testerHeader: c.req.header(TESTER_HEADER),
+      contentType: c.req.header("content-type"),
+    });
+    if (rejection) {
+      return c.json({ error: rejection }, rejection.httpStatus as 403);
     }
-    const read = await session.readFrame(lastSeq);
-    return c.json(toFramePayload(read));
-  }),
-);
+    await next();
+  });
 
-app.post(
-  "/api/camera/open",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const result = await session.openCamera({
-      cameraId: typeof body.cameraId === "string" ? body.cameraId : undefined,
-      algorithmType: body.algorithmType === "on_device"
-        ? "on_device"
-        : undefined,
-      reservationTimeoutMs: num(body.reservationTimeoutMs),
-    });
-    return c.json({ ...result, status: session.status() });
-  }),
-);
+  // ---- Routes ---------------------------------------------------------------
 
-app.post(
-  "/api/camera/close",
-  handle(async (c) => {
-    const result = await session.closeCamera();
-    return c.json({ ...result, status: session.status() });
-  }),
-);
+  app.get("/api/health", (c) => c.json({ ok: true }));
 
-app.post(
-  "/api/capture",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const result = await session.capture({
-      minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
-      maximalSpoofScore: num(body.maximalSpoofScore),
-      timeoutMs: num(body.timeoutMs),
-    }, c.req.raw.signal);
-    return c.json({ result });
-  }),
-);
+  app.get("/api/status", (c) => c.json(session.status()));
 
-app.post(
-  "/api/process-image",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const data = requireStr(body.image, "image");
-    const datatype = asImageDatatype(body.datatype);
-    const result = await session.processImage(data, datatype, {
-      minimalQuality: num(body.minimalQuality),
-      maximalSpoofScore: num(body.maximalSpoofScore),
-    });
-    return c.json({ result });
-  }),
-);
+  app.post(
+    "/api/connect",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const override: ConnectInput = {
+        dllPath: typeof body.dllPath === "string" ? body.dllPath : undefined,
+        dllDir: typeof body.dllDir === "string" ? body.dllDir : undefined,
+        pollIntervalMs: typeof body.pollIntervalMs === "number"
+          ? body.pollIntervalMs
+          : undefined,
+        // mock can be forced from env; allow the UI to opt in too.
+        mock: typeof body.mock === "boolean" ? body.mock : undefined,
+        mockScenario: typeof body.mockScenario === "string"
+          ? body.mockScenario
+          : undefined,
+      };
+      const resolved = resolveConfig(envConfig, override);
+      const info = await session.connect(resolved);
+      return c.json({ deviceInfo: info, status: session.status() });
+    }),
+  );
 
-app.post(
-  "/api/match",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const result = await session.match(
-      requireStr(body.template1, "template1"),
-      requireStr(body.template2, "template2"),
-      requireNum(body.minimalMatchScore, "minimalMatchScore"),
-    );
-    return c.json({ result });
-  }),
-);
+  app.post(
+    "/api/disconnect",
+    handle(async (c) => {
+      await session.disconnect();
+      return c.json({ status: session.status() });
+    }),
+  );
 
-app.post(
-  "/api/mock/scenario",
-  handle((c) =>
-    readJson(c).then((body) => {
-      if (!isMockScenario(body.scenario)) {
-        throw Object.assign(
-          new Error(
-            `Invalid scenario "${body.scenario}". Expected one of: ${
-              MOCK_SCENARIOS.join(", ")
-            }.`,
+  app.get(
+    "/api/device-info",
+    handle(async (c) => c.json({ deviceInfo: await session.getInfo() })),
+  );
+
+  app.get(
+    "/api/cameras",
+    handle(async (c) => c.json({ cameras: await session.getCameras() })),
+  );
+
+  app.get(
+    "/api/parameters",
+    handle(async (c) => c.json({ parameters: await session.getParameters() })),
+  );
+
+  app.get(
+    "/api/video-frame",
+    handle(async (c) => {
+      const raw = c.req.query("lastSeq");
+      let lastSeq: bigint | undefined;
+      try {
+        lastSeq = raw != null && raw !== "" ? BigInt(raw) : undefined;
+      } catch {
+        lastSeq = undefined; // malformed cursor → treat as "latest"
+      }
+      const read = await session.readFrame(lastSeq);
+      return c.json(toFramePayload(read));
+    }),
+  );
+
+  app.post(
+    "/api/camera/open",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const result = await session.openCamera({
+        cameraId: typeof body.cameraId === "string" ? body.cameraId : undefined,
+        algorithmType: body.algorithmType === "on_device"
+          ? "on_device"
+          : undefined,
+        reservationTimeoutMs: num(body.reservationTimeoutMs),
+      });
+      return c.json({ ...result, status: session.status() });
+    }),
+  );
+
+  app.post(
+    "/api/camera/close",
+    handle(async (c) => {
+      const result = await session.closeCamera();
+      return c.json({ ...result, status: session.status() });
+    }),
+  );
+
+  app.post(
+    "/api/capture",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const result = await session.capture({
+        minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
+        maximalSpoofScore: num(body.maximalSpoofScore),
+        timeoutMs: num(body.timeoutMs),
+      }, c.req.raw.signal);
+      return c.json({ result });
+    }),
+  );
+
+  app.post(
+    "/api/process-image",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const data = requireStr(body.image, "image");
+      const datatype = asImageDatatype(body.datatype);
+      const result = await session.processImage(data, datatype, {
+        minimalQuality: num(body.minimalQuality),
+        maximalSpoofScore: num(body.maximalSpoofScore),
+      });
+      return c.json({ result });
+    }),
+  );
+
+  app.post(
+    "/api/match",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const result = await session.match(
+        requireStr(body.template1, "template1"),
+        requireStr(body.template2, "template2"),
+        requireNum(body.minimalMatchScore, "minimalMatchScore"),
+      );
+      return c.json({ result });
+    }),
+  );
+
+  app.post(
+    "/api/mock/scenario",
+    handle((c) =>
+      readJson(c).then((body) => {
+        if (!isMockScenario(body.scenario)) {
+          throw Object.assign(
+            new Error(
+              `Invalid scenario "${body.scenario}". Expected one of: ${
+                MOCK_SCENARIOS.join(", ")
+              }.`,
+            ),
+            { name: "ConfigError" },
+          );
+        }
+        const result = session.setMockScenario(body.scenario);
+        return c.json({ ...result, status: session.status() });
+      })
+    ),
+  );
+
+  app.post(
+    "/api/capture-and-match",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const capture = (body.capture ?? {}) as Record<string, unknown>;
+      const result = await session.captureAndMatch({
+        reference: {
+          modality: "face",
+          datatype: asImageDatatype(body.datatype),
+          data: requireStr(body.image, "image"),
+        },
+        capture: {
+          minimalQuality: requireNum(
+            capture.minimalQuality,
+            "capture.minimalQuality",
           ),
-          { name: "ConfigError" },
+          maximalSpoofScore: num(capture.maximalSpoofScore),
+          timeoutMs: num(capture.timeoutMs),
+        },
+        minimalMatchScore: requireNum(
+          body.minimalMatchScore,
+          "minimalMatchScore",
+        ),
+      }, c.req.raw.signal);
+      return c.json({ result });
+    }),
+  );
+
+  app.post(
+    "/api/capture-high-res",
+    handle(async (c) => {
+      const body = await readJson(c);
+      const result = await session.captureHighRes({
+        minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
+        maximalSpoofScore: num(body.maximalSpoofScore),
+        timeoutMs: num(body.timeoutMs),
+      }, c.req.raw.signal);
+      return c.json({ result });
+    }),
+  );
+
+  app.post(
+    "/api/parameters",
+    handle(async (c) => {
+      const body = await readJson(c);
+      // Pass through every finite-number field; the lib facade refuses non-allowlisted
+      // keys loudly (→ 422), so we do NOT silently pre-filter to the allowlist here.
+      const patch: Record<string, number> = {};
+      for (const [k, v] of Object.entries(body)) {
+        if (typeof v === "number" && Number.isFinite(v)) patch[k] = v;
+      }
+      const result = await session.setParameters(
+        patch as DeviceParametersPatch,
+      );
+      return c.json(result);
+    }),
+  );
+
+  app.get(
+    "/api/high-res-image/:id",
+    handle((c) => {
+      const id = c.req.param("id") ?? "";
+      const img = session.takeHighResImage(id);
+      if (!img) {
+        // JSON error envelope (NOT image bytes) — the client's downloadHighResImage
+        // detects this via res.ok / content-type and throws ApiError.
+        return c.json(
+          {
+            error: {
+              name: "NotFoundError",
+              message:
+                "High-res image not found (unknown or already-fetched id).",
+              httpStatus: 404,
+            },
+          },
+          404,
         );
       }
-      const result = session.setMockScenario(body.scenario);
-      return c.json({ ...result, status: session.status() });
-    })
-  ),
-);
+      const contentType = img.format === "jpg" || img.format === "jpeg"
+        ? "image/jpeg"
+        : "image/png";
+      return new Response(img.bytes as unknown as BodyInit, {
+        headers: { "content-type": contentType },
+      });
+    }),
+  );
 
-app.post(
-  "/api/capture-and-match",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const capture = (body.capture ?? {}) as Record<string, unknown>;
-    const result = await session.captureAndMatch({
-      reference: {
-        modality: "face",
-        datatype: asImageDatatype(body.datatype),
-        data: requireStr(body.image, "image"),
-      },
-      capture: {
-        minimalQuality: requireNum(
-          capture.minimalQuality,
-          "capture.minimalQuality",
-        ),
-        maximalSpoofScore: num(capture.maximalSpoofScore),
-        timeoutMs: num(capture.timeoutMs),
-      },
-      minimalMatchScore: requireNum(
-        body.minimalMatchScore,
-        "minimalMatchScore",
-      ),
-    }, c.req.raw.signal);
-    return c.json({ result });
-  }),
-);
+  app.get(
+    "/api/diagnostics",
+    handle(async (c) =>
+      c.json(toDiagnosticsWire(await session.getDiagnostics()))
+    ),
+  );
 
-app.post(
-  "/api/capture-high-res",
-  handle(async (c) => {
-    const body = await readJson(c);
-    const result = await session.captureHighRes({
-      minimalQuality: requireNum(body.minimalQuality, "minimalQuality"),
-      maximalSpoofScore: num(body.maximalSpoofScore),
-      timeoutMs: num(body.timeoutMs),
-    }, c.req.raw.signal);
-    return c.json({ result });
-  }),
-);
-
-app.post(
-  "/api/parameters",
-  handle(async (c) => {
-    const body = await readJson(c);
-    // Pass through every finite-number field; the lib facade refuses non-allowlisted
-    // keys loudly (→ 422), so we do NOT silently pre-filter to the allowlist here.
-    const patch: Record<string, number> = {};
-    for (const [k, v] of Object.entries(body)) {
-      if (typeof v === "number" && Number.isFinite(v)) patch[k] = v;
-    }
-    const result = await session.setParameters(patch as DeviceParametersPatch);
-    return c.json(result);
-  }),
-);
-
-app.get(
-  "/api/high-res-image/:id",
-  handle((c) => {
-    const id = c.req.param("id") ?? "";
-    const img = session.takeHighResImage(id);
-    if (!img) {
-      // JSON error envelope (NOT image bytes) — the client's downloadHighResImage
-      // detects this via res.ok / content-type and throws ApiError.
-      return c.json(
-        { error: { name: "NotFoundError", message: "High-res image not found (unknown or already-fetched id).", httpStatus: 404 } },
-        404,
+  app.get(
+    "/api/logs",
+    handle(async (c) => {
+      const code = requireStr(c.req.query("code"), "code") as DiagnosticLogCode;
+      const { cursor, limit } = parseLogQuery(
+        c.req.query("cursor"),
+        c.req.query("limit"),
+      ); // bad → ConfigError → 400
+      // An unknown/destructive code passes through to the lib facade, which throws
+      // UnsupportedDiagnosticError → normalizeError → 422.
+      const page = await session.getLogs(
+        code,
+        { cursor, limit },
+        c.req.raw.signal,
       );
-    }
-    const contentType = img.format === "jpg" || img.format === "jpeg" ? "image/jpeg" : "image/png";
-    return new Response(img.bytes as unknown as BodyInit, { headers: { "content-type": contentType } });
-  }),
-);
+      const wire: LogPage = {
+        code: page.code,
+        entries: toLogEntries(page.lines),
+        nextCursor: page.nextCursor,
+        truncated: page.truncated,
+        byteLength: page.byteLength,
+        sourceByteLength: page.sourceByteLength,
+        truncatedBytes: page.truncatedBytes,
+      };
+      return c.json(wire);
+    }),
+  );
 
-// Optionally serve a built frontend (deno task build in src/ → dist/). When dist
-// is absent (the common dev case), we just skip it and rely on the Vite server.
-let distAvailable = false;
-try {
-  const stat = await Deno.stat("./dist/index.html");
-  distAvailable = stat.isFile;
-} catch {
-  distAvailable = false;
-}
-if (distAvailable) {
-  app.use("/*", serveStatic({ root: "./dist" }));
-  app.get("/*", serveStatic({ path: "./dist/index.html" })); // SPA fallback
-}
+  // Static frontend LAST (after /api) so the SPA fallback never shadows an API route.
+  if (opts.distAvailable) {
+    app.use("/*", serveStatic({ root: "./dist" }));
+    app.get("/*", serveStatic({ path: "./dist/index.html" })); // SPA fallback
+  }
 
-// ---- Server + graceful shutdown ------------------------------------------
-
-const server = Deno.serve({
-  port,
-  hostname: "127.0.0.1", // loopback only — do not expose on the network
-  onListen: ({ hostname, port }) => {
-    const mode = envConfig.mock ? "MOCK" : "LIVE";
-    console.log(
-      `FacePod tester backend [${mode}] listening on http://${hostname}:${port}`,
-    );
-    if (distAvailable) console.log("Serving built frontend from ./dist");
-  },
-}, app.fetch);
-
-async function shutdown() {
-  console.log("\nShutting down — disposing FacePod session…");
-  await session.forceDispose(); // unguarded: release the device even mid-op
-  await server.shutdown().catch(() => {});
-  Deno.exit(0);
+  return app;
 }
 
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
+// Only boot the runtime when run directly — NOT when imported by a test.
+if (import.meta.main) {
+  const session = new FacePodSession();
+
+  // Optionally serve a built frontend (deno task build in src/ → dist/). When
+  // dist is absent (the common dev case), we just skip it and rely on the
+  // Vite server.
+  let distAvailable = false;
   try {
-    Deno.addSignalListener(sig, shutdown);
+    const stat = await Deno.stat("./dist/index.html");
+    distAvailable = stat.isFile;
   } catch {
-    // SIGTERM is unavailable on some platforms; ignore.
+    distAvailable = false;
+  }
+
+  const app = createApp(session, { distAvailable });
+
+  // ---- Server + graceful shutdown ------------------------------------------
+
+  const server = Deno.serve({
+    port,
+    hostname: "127.0.0.1", // loopback only — do not expose on the network
+    onListen: ({ hostname, port }) => {
+      const mode = envConfig.mock ? "MOCK" : "LIVE";
+      console.log(
+        `FacePod tester backend [${mode}] listening on http://${hostname}:${port}`,
+      );
+      if (distAvailable) console.log("Serving built frontend from ./dist");
+    },
+  }, app.fetch);
+
+  const shutdown = async () => {
+    console.log("\nShutting down — disposing FacePod session…");
+    await session.forceDispose(); // unguarded: release the device even mid-op
+    await server.shutdown().catch(() => {});
+    Deno.exit(0);
+  };
+
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    try {
+      Deno.addSignalListener(sig, shutdown);
+    } catch {
+      // SIGTERM is unavailable on some platforms; ignore.
+    }
   }
 }
