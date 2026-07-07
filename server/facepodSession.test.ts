@@ -699,3 +699,70 @@ Deno.test("setParameters refuses non-allowlisted keys (UnsupportedParameterError
   );
   await s.disconnect();
 });
+
+Deno.test("getDiagnostics returns ok/match when camera open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const d = await s.getDiagnostics();
+  assertEquals(d.ok, true);
+  await s.disconnect();
+});
+
+Deno.test("getDiagnostics throws when not connected", async () => {
+  const s = new FacePodSession();
+  await assertRejects(() => s.getDiagnostics());
+});
+
+Deno.test("getLogs page 1 fetches; cursor>0 is served from cache (no device op)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p1 = await s.getLogs("hfapi", { cursor: 0, limit: 500 });
+  assertEquals(p1.lines.length, 500);
+  assertEquals(p1.nextCursor, 500);
+  // Prove the cache hit OBSERVABLY: flip the device to error, then page. A cursor>0
+  // request that re-fetched would now throw; a cache read succeeds. (A weaker test
+  // that only asserts pagination would pass even if every page re-fetched.)
+  s.setMockScenario("device-error");
+  const p2 = await s.getLogs("hfapi", { cursor: 500, limit: 500 });
+  assertEquals(p2.lines.length, 500);
+  assertEquals(p2.nextCursor, 1000);
+  // cursor=0 ALWAYS re-fetches a fresh page 1 → now hits the erroring device.
+  await assertRejects(() => s.getLogs("hfapi", { cursor: 0 }));
+  await s.disconnect();
+});
+
+Deno.test("getLogs limit is clamped to the hard max", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getLogs("hfapi", { cursor: 0, limit: 99999 });
+  assert(p.lines.length <= 1000);
+  await s.disconnect();
+});
+
+Deno.test("getLogs truncated flag surfaces a byte-capped blob", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getLogs("hfapiError", { cursor: 0 });
+  assertEquals(p.truncated, true);
+  assert(p.truncatedBytes > 0);
+  await s.disconnect();
+});
+
+Deno.test("getLogs re-fetches after closeCamera clears the cache", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  await s.getLogs("hfapi", { cursor: 0 });
+  await s.closeCamera();
+  await s.openCamera();
+  // Cache cleared → a cursor>0 request must re-fetch (not read a stale/empty page).
+  // Prove it hits the device: flip to error and assert it rejects (a served-from-cache
+  // page would have succeeded).
+  s.setMockScenario("device-error");
+  await assertRejects(() => s.getLogs("hfapi", { cursor: 500 }));
+  await s.disconnect();
+});
