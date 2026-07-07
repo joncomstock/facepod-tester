@@ -766,3 +766,30 @@ Deno.test("getLogs re-fetches after closeCamera clears the cache", async () => {
   await assertRejects(() => s.getLogs("hfapi", { cursor: 500 }));
   await s.disconnect();
 });
+
+Deno.test("getLogs terminal page returns nextCursor null", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+
+  // mockLogResult in mockClient.ts builds the "hfapi" fixture as 1200 JSON
+  // lines (loop i in [0, 1200)) plus 1 trailing malformed line ("{ this is
+  // not valid json") appended for every non-empty code → 1201 lines total.
+  const totalLines = 1200 + 1;
+  const limit = 1000; // LOG_PAGE_MAX_LIMIT — the hard per-page cap.
+
+  // Page 1 fetches the full snapshot (1201 lines) and caches it, but only
+  // slices out the first 1000 — leaving a 201-line tail.
+  const p1 = await s.getLogs("hfapi", { cursor: 0, limit });
+  assertEquals(p1.lines.length, limit);
+  assertEquals(p1.nextCursor, limit);
+
+  // Paging to the tail (cursor 1000, limit 1000) exhausts the remaining 201
+  // lines: cursor + limit (2000) >= totalLines (1201), so this MUST be the
+  // terminal page — nextCursor is null, not another (empty) page number.
+  const p2 = await s.getLogs("hfapi", { cursor: p1.nextCursor!, limit });
+  assertEquals(p2.lines.length, totalLines - limit);
+  assertEquals(p2.nextCursor, null);
+
+  await s.disconnect();
+});
