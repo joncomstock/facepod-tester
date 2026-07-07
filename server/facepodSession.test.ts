@@ -47,8 +47,24 @@ function frameClient(frames: Promise<VideoFrame>[]): FaceModuleClient {
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
 }
 
@@ -180,8 +196,24 @@ Deno.test("failed connect leaves no live session and disposes the client", async
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
     close: () => {
       closed = true;
     },
@@ -263,7 +295,10 @@ Deno.test("readFrame populates latestSnapshot after a capture writes it", async 
   await s.capture({ minimalQuality: 0.7 }); // streams onIntermediate → buffer
   const r = await s.readFrame(-1n);
   assert(r.snapshot !== null, "snapshot should be buffered after a capture");
-  assert(r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0, "age computed server-side");
+  assert(
+    r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0,
+    "age computed server-side",
+  );
   await s.disconnect();
 });
 
@@ -333,8 +368,24 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -344,7 +395,10 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
   const capP = s.capture({ minimalQuality: 0.5 }); // hangs, holds the busy lock
 
   // Reconnect: the wedged op won't settle within 50ms → connect's #track BusyErrors.
-  await assertRejects(() => s.connect({ mock: false, mockScenario: "good" }), Error);
+  await assertRejects(
+    () => s.connect({ mock: false, mockScenario: "good" }),
+    Error,
+  );
 
   // The frame lane must be RESTORED on the retained session — not stuck closed.
   const r = await s.readFrame(-1n);
@@ -385,8 +439,24 @@ Deno.test("teardown refuses to dispose while a frame read is still in flight (se
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -434,8 +504,24 @@ Deno.test("readFrame propagates a real read failure (records lastError + throws,
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -447,7 +533,10 @@ Deno.test("readFrame propagates a real read failure (records lastError + throws,
   // as a silent frame:null. It is also recorded for GET /api/status.
   await assertRejects(() => s.readFrame(-1n), Error, "frame read boom");
   const err = s.status().lastError;
-  assert(err !== null, "a thrown read error must be recorded, not silently masked");
+  assert(
+    err !== null,
+    "a thrown read error must be recorded, not silently masked",
+  );
   assertEquals(err?.message, "frame read boom");
   await s.disconnect();
 });
@@ -561,7 +650,11 @@ Deno.test("setParameters (mock): applied round-trip; getParameters reflects the 
   await s.openCamera();
 
   const r = await s.setParameters({ maxYaw: 10, streamMode: 1 });
-  assertEquals(r.results.maxYaw, { requested: 10, effective: 10, status: "applied" });
+  assertEquals(r.results.maxYaw, {
+    requested: 10,
+    effective: 10,
+    status: "applied",
+  });
   assertEquals(r.results.streamMode?.status, "applied");
   assertEquals((await s.getParameters()).maxYaw, 10);
 
@@ -575,11 +668,19 @@ Deno.test("setParameters (mock): clamped and rejected statuses", async () => {
 
   // Widening a MAX past the factory default (15) is rejected → unchanged.
   const rej = await s.setParameters({ maxYaw: 90 });
-  assertEquals(rej.results.maxYaw, { requested: 90, effective: 15, status: "rejected" });
+  assertEquals(rej.results.maxYaw, {
+    requested: 90,
+    effective: 15,
+    status: "rejected",
+  });
 
   // A match-score threshold above 1 clamps to the [0,1] boundary.
   const clamp = await s.setParameters({ recMinMatchScoreL1: 1.5 });
-  assertEquals(clamp.results.recMinMatchScoreL1, { requested: 1.5, effective: 1, status: "clamped" });
+  assertEquals(clamp.results.recMinMatchScoreL1, {
+    requested: 1.5,
+    effective: 1,
+    status: "clamped",
+  });
 
   await s.disconnect();
 });
@@ -589,7 +690,10 @@ Deno.test("setParameters refuses non-allowlisted keys (UnsupportedParameterError
   await s.connect(MOCK_CONFIG);
   await s.openCamera();
   await assertRejects(
-    () => s.setParameters({ cameraEnableHighRes: 1 } as Parameters<typeof s.setParameters>[0]),
+    () =>
+      s.setParameters(
+        { cameraEnableHighRes: 1 } as Parameters<typeof s.setParameters>[0],
+      ),
     Error,
     "cameraEnableHighRes",
   );

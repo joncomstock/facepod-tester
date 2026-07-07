@@ -108,20 +108,27 @@ Deno.test("approach scenario ramps quality across successive captures", async ()
   const first = await client.captureAndProcess({ minimalQuality: 0.7 });
   const samples = [first.quality];
   for (let i = 0; i < 12; i++) {
-    samples.push((await client.captureAndProcess({ minimalQuality: 0.7 })).quality);
+    samples.push(
+      (await client.captureAndProcess({ minimalQuality: 0.7 })).quality,
+    );
   }
   // It starts low and reaches a high (>=0.9) quality within the ramp.
   assert(samples[0] < 0.5, `expected low start, got ${samples[0]}`);
   assert(samples.some((q) => q >= 0.9), "expected ramp to reach >=0.9");
   // numberOfFaces is 1 once present.
-  assert((await client.captureAndProcess({ minimalQuality: 0.7 })).numberOfFaces <= 1);
+  assert(
+    (await client.captureAndProcess({ minimalQuality: 0.7 })).numberOfFaces <=
+      1,
+  );
 });
 
 Deno.test("approach scenario emits real positioning feedback then OK", async () => {
   const client = new DeterministicMockClient(() => "approach");
   const opts = { minimalQuality: 0.7, maximalSpoofScore: 0.5 };
   const frames = [];
-  for (let i = 0; i < 16; i++) frames.push(await client.captureAndProcess(opts));
+  for (let i = 0; i < 16; i++) {
+    frames.push(await client.captureAndProcess(opts));
+  }
   // While approaching (face present, not yet locked) → corrective TURN_RIGHT bit.
   const correcting = frames.find((f) => f.numberOfFaces === 1 && !f.isCaptured);
   assertEquals(correcting?.positioningFeedback?.flags, ["TURN_RIGHT"]);
@@ -154,7 +161,9 @@ Deno.test("getVideoFrame: stays live under the real poll pattern (-1 then echo l
   let last = f1.seq;
   for (let i = 0; i < 5; i++) {
     const f = await c.getVideoFrame(last); // echo last seq, exactly as the client does
-    if (!f) throw new Error(`feed froze at poll ${i}: got null for cursor ${last}`);
+    if (!f) {
+      throw new Error(`feed froze at poll ${i}: got null for cursor ${last}`);
+    }
     assert(f.seq > last, `seq must advance: ${last} -> ${f.seq}`);
     last = f.seq;
   }
@@ -166,17 +175,46 @@ Deno.test("captureAndProcess: streams several intermediate snapshots", async () 
   const r = await c.captureAndProcess(
     { minimalQuality: 0.7, maximalSpoofScore: 0.5 },
     undefined,
-    (s) => { snaps.push(s); },
+    (s) => {
+      snaps.push(s);
+    },
   );
-  assert(snaps.length >= 3, `expected >=3 intermediate snapshots, got ${snaps.length}`);
+  assert(
+    snaps.length >= 3,
+    `expected >=3 intermediate snapshots, got ${snaps.length}`,
+  );
   // Intermediate snapshots carry live overlay metadata, never a verdict signal.
-  assert(snaps.every((s) => typeof s.numberOfFaces === "number"), "numberOfFaces always present");
+  assert(
+    snaps.every((s) => typeof s.numberOfFaces === "number"),
+    "numberOfFaces always present",
+  );
   assert("liveness" in r, "final result carries liveness");
 });
 
 Deno.test("captureAndProcess: aborts promptly when signalled", async () => {
   const c = client("approach");
   const ac = new AbortController();
-  const p = c.captureAndProcess({ minimalQuality: 0.7 }, ac.signal, () => ac.abort());
+  const p = c.captureAndProcess(
+    { minimalQuality: 0.7 },
+    ac.signal,
+    () => ac.abort(),
+  );
   await assertRejects(() => p, Error); // AbortError surfaces as a rejection
+});
+
+Deno.test("mock getDiagnostics echoes (ok+match) and device-error rejects", async () => {
+  const good = new DeterministicMockClient(() => "good");
+  const d = await good.getDiagnostics();
+  assertEquals(d.ok, true);
+  assertEquals(d.match, true);
+  const bad = new DeterministicMockClient(() => "device-error");
+  await assertRejects(() => bad.getDiagnostics());
+});
+
+Deno.test("mock getLogs paginates; nethfapiHttp empty; hfapiError truncated", async () => {
+  const c = new DeterministicMockClient(() => "good");
+  const big = await c.getLogs("hfapi");
+  assert(big.lines.length > 1000);
+  assertEquals((await c.getLogs("nethfapiHttp")).lines, []);
+  assert((await c.getLogs("hfapiError")).truncatedBytes > 0);
 });
