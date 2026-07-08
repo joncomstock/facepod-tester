@@ -19,12 +19,15 @@ import {
   type DeviceInfo,
   type DeviceParameters,
   type DeviceParametersPatch,
+  type DiagnosticLogCode,
+  type DiagnosticsResult,
   type FaceImage,
   FaceModuleLifecycle,
   FaceModuleStatusCodes,
   FACEPOD_DEFAULTS,
   type ImageDatatype,
   type LiveSnapshot,
+  type LogResult,
   type MatchResult,
   type ProcessResult,
   type SetParametersResult,
@@ -119,6 +122,25 @@ const DRAIN_OP_MS = 6000;
  */
 const DRAIN_FRAME_MS = 2000;
 
+const LOG_PAGE_DEFAULT_LIMIT = 500;
+const LOG_PAGE_MAX_LIMIT = 1000;
+function clampLogLimit(limit?: number): number {
+  if (limit === undefined) return LOG_PAGE_DEFAULT_LIMIT;
+  return Math.max(1, Math.min(limit, LOG_PAGE_MAX_LIMIT));
+}
+
+/** A paged view of one cached log channel (raw lines). The route maps lines →
+ *  { raw, parsed?, parseError? } entries and encodes the wire LogPage. */
+export interface LogPageRaw {
+  code: DiagnosticLogCode;
+  lines: string[];
+  nextCursor: number | null;
+  truncated: boolean;
+  byteLength: number;
+  sourceByteLength: number;
+  truncatedBytes: number;
+}
+
 /**
  * Builds + returns a (not-yet-connected) FaceModuleLifecycle for a config.
  * Injectable so tests can substitute a lifecycle backed by a fake client.
@@ -156,6 +178,22 @@ export class FacePodSession {
   #highRes = new Map<string, { bytes: Uint8Array; format: ImageDatatype; createdAt: number }>();
   readonly #highResTtlMs = 60_000;
   readonly #highResMax = 4;
+  // Diagnostics log cache: one decoded channel per code so pagination pages the SAME
+  // snapshot without re-hitting the device. In-memory only (multi-MB; never disk).
+  // TTL + max-entries; cleared on openCamera/closeCamera (context change) AND #teardown
+  // (lifecycle) — a closed context must never serve a stale-context page. (spec §4.2)
+  #logCache = new Map<
+    DiagnosticLogCode,
+    {
+      lines: string[];
+      byteLength: number;
+      sourceByteLength: number;
+      truncatedBytes: number;
+      fetchedAt: number;
+    }
+  >();
+  readonly #logCacheTtlMs = 60_000;
+  readonly #logCacheMax = 3;
   readonly #makeLifecycle: LifecycleFactory;
   readonly #drainOpMs: number;
   readonly #drainFrameMs: number;
@@ -457,6 +495,7 @@ export class FacePodSession {
       this.#cameraOpen = false;
       this.#latestSnapshot = null;
       this.#highRes.clear();
+      this.#logCache.clear();
     }
   }
 
@@ -479,6 +518,65 @@ export class FacePodSession {
     return this.#track(() => this.#require().device.setParameters(patch));
   }
 
+  getDiagnostics(): Promise<DiagnosticsResult> {
+    return this.#track(() => this.#require().device.getDiagnostics());
+  }
+
+  async getLogs(
+    code: DiagnosticLogCode,
+    opts: { cursor?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<LogPageRaw> {
+    const limit = clampLogLimit(opts.limit);
+    const cursor = opts.cursor ?? 0;
+    this.#sweepLogCache();
+    let entry = this.#logCache.get(code);
+    const fresh = entry !== undefined &&
+      Date.now() - entry.fetchedAt <= this.#logCacheTtlMs;
+    // Fetch on: first page (cursor 0 / absent) → always a fresh snapshot; OR a
+    // miss/expiry on a later page (evicted → re-fetch; the log may have grown —
+    // documented, mirrors high-res id eviction). cursor>0 on a live cache pages
+    // from memory with NO device op.
+    if (!fresh || cursor === 0) {
+      const r: LogResult = await this.#track(() =>
+        this.#require().device.getLogs(code, signal)
+      );
+      entry = {
+        lines: r.lines,
+        byteLength: r.byteLength,
+        sourceByteLength: r.sourceByteLength,
+        truncatedBytes: r.truncatedBytes,
+        fetchedAt: Date.now(),
+      };
+      this.#logCache.set(code, entry);
+      // Map preserves insertion order → first key is oldest.
+      while (this.#logCache.size > this.#logCacheMax) {
+        this.#logCache.delete(
+          this.#logCache.keys().next().value as DiagnosticLogCode,
+        );
+      }
+    }
+    const e = entry!;
+    const slice = e.lines.slice(cursor, cursor + limit);
+    return {
+      code,
+      lines: slice,
+      nextCursor: cursor + limit < e.lines.length ? cursor + limit : null,
+      truncated: e.truncatedBytes > 0,
+      byteLength: e.byteLength,
+      sourceByteLength: e.sourceByteLength,
+      truncatedBytes: e.truncatedBytes,
+    };
+  }
+
+  /** Drop TTL-expired log entries (lazy: called on each getLogs). */
+  #sweepLogCache(): void {
+    const now = Date.now();
+    for (const [code, e] of this.#logCache) {
+      if (now - e.fetchedAt > this.#logCacheTtlMs) this.#logCache.delete(code);
+    }
+  }
+
   /** Idempotent: opening an already-open camera is a no-op (never double-open). */
   async openCamera(opts?: {
     cameraId?: string;
@@ -491,6 +589,7 @@ export class FacePodSession {
         await fp.device.openCamera(opts);
       }
       this.#cameraOpen = true;
+      this.#logCache.clear(); // a context change must invalidate cached logs
       return { cameraOpen: true } as const;
     });
   }
@@ -500,6 +599,7 @@ export class FacePodSession {
       const fp = this.#require();
       await fp.device.closeCamera(); // library-idempotent
       this.#cameraOpen = false;
+      this.#logCache.clear(); // a context change must invalidate cached logs
       return { cameraOpen: false } as const;
     });
   }

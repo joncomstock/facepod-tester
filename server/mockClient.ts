@@ -19,12 +19,15 @@ import {
   type DeviceInfo,
   type DeviceParameters,
   type DeviceParametersPatch,
+  type DiagnosticLogCode,
+  type DiagnosticsResult,
   type FaceImage,
   FaceModuleApiError,
   type FaceModuleClient,
   type FaceTemplate,
   type HighResCapture,
   type LiveSnapshot,
+  type LogResult,
   type MatchOptions,
   type MatchResult,
   type OpenContextOptions,
@@ -103,23 +106,76 @@ function deviceError(op: string): FaceModuleApiError {
   );
 }
 
+/** Deterministic synthetic log large enough to exercise pagination, the per-page
+ *  clamp, nextCursor, byte-truncation, a non-JSON line, and a malformed line. */
+function mockLogResult(code: DiagnosticLogCode): LogResult {
+  if (code === "nethfapiHttp") {
+    return {
+      code,
+      lines: [],
+      byteLength: 0,
+      sourceByteLength: 0,
+      truncatedBytes: 0,
+    };
+  }
+  const lines: string[] = [];
+  for (let i = 0; i < 1200; i++) {
+    lines.push(JSON.stringify({ i, msg: `event ${i}`, code }));
+  }
+  if (code === "secureEvents") {
+    lines.push("[secure] plain bracketed event, not JSON");
+  }
+  lines.push("{ this is not valid json"); // malformed → {raw, parseError} path
+  const byteLength = lines.reduce((n, l) => n + l.length + 1, 0);
+  // hfapiError simulates a byte-capped (runaway) blob: sourceByteLength > byteLength.
+  const truncatedBytes = code === "hfapiError" ? 4096 : 0;
+  return {
+    code,
+    lines,
+    byteLength,
+    sourceByteLength: byteLength + truncatedBytes,
+    truncatedBytes,
+  };
+}
+
 /** Mock factory defaults. Values chosen DISTINCT from the UI defaults (0.7/0.5/0.7)
  *  so the reference ticks are visibly offset in the demo. The envelope reference for
  *  setParameters clamp/reject (Decision A). */
 const MOCK_DEFAULT_PARAMS: DeviceParameters = {
-  captureImageEncoding: 1, streamMode: 0, captureMode: 1,
-  recMaxSpoofProbability: 0.45, recMinEnrollTemplateQuality: 0.7,
+  captureImageEncoding: 1,
+  streamMode: 0,
+  captureMode: 1,
+  recMaxSpoofProbability: 0.45,
+  recMinEnrollTemplateQuality: 0.7,
   recMinVerifyTemplateQuality: 0.65,
-  recMinMatchScoreL1: 0.8, recMinMatchScoreL2: 0.9, recMinMatchScoreL3: 0.95,
-  cameraEnableHighRes: 1, cameraSuspend: 0, cameraIdleTimeoutMs: 30000,
-  cameraEncodingAcceleration: 1, cameraLowPowerMode: 0, cameraLowPowerTimeoutMs: 60000,
+  recMinMatchScoreL1: 0.8,
+  recMinMatchScoreL2: 0.9,
+  recMinMatchScoreL3: 0.95,
+  cameraEnableHighRes: 1,
+  cameraSuspend: 0,
+  cameraIdleTimeoutMs: 30000,
+  cameraEncodingAcceleration: 1,
+  cameraLowPowerMode: 0,
+  cameraLowPowerTimeoutMs: 60000,
   faceSelectPolicy: 0,
-  minDistance: 0.3, maxDistance: 1.0, minRoll: -15, maxRoll: 15,
-  minPitch: -15, maxPitch: 15, minYaw: -15, maxYaw: 15,
-  margin: 20, onlyCenteredFaces: 1, maxResults: 1,
-  dayToNightThreshold: 30, nightToDayThreshold: 60,
-  dayToNightViscosity: 5, nightToDayViscosity: 5,
-  aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
+  minDistance: 0.3,
+  maxDistance: 1.0,
+  minRoll: -15,
+  maxRoll: 15,
+  minPitch: -15,
+  maxPitch: 15,
+  minYaw: -15,
+  maxYaw: 15,
+  margin: 20,
+  onlyCenteredFaces: 1,
+  maxResults: 1,
+  dayToNightThreshold: 30,
+  nightToDayThreshold: 60,
+  dayToNightViscosity: 5,
+  nightToDayViscosity: 5,
+  aeBoundingBoxTimeoutMs: 2000,
+  captureStabilization: 1,
+  encodingJpegQuality: 90,
 };
 
 /**
@@ -133,12 +189,27 @@ const MOCK_DEFAULT_PARAMS: DeviceParameters = {
  * Mirrors ground truth §5 (monotonic = factory-envelope clamp) closely enough to
  * exercise applied/clamped/rejected off-device.
  */
-function mockEffectiveParam(field: string, requested: number, original: number): number {
-  const factory = (MOCK_DEFAULT_PARAMS as unknown as Record<string, number>)[field];
-  if (field === "streamMode") return requested === 0 || requested === 1 || requested === 2 ? requested : original;
-  if (field.startsWith("recMinMatchScore")) return Math.max(0, Math.min(1, requested));
-  if (field.startsWith("max")) return requested > factory ? original : requested; // widening a max = reject
-  if (field.startsWith("min")) return requested < factory ? original : requested; // widening a min = reject
+function mockEffectiveParam(
+  field: string,
+  requested: number,
+  original: number,
+): number {
+  const factory =
+    (MOCK_DEFAULT_PARAMS as unknown as Record<string, number>)[field];
+  if (field === "streamMode") {
+    return requested === 0 || requested === 1 || requested === 2
+      ? requested
+      : original;
+  }
+  if (field.startsWith("recMinMatchScore")) {
+    return Math.max(0, Math.min(1, requested));
+  }
+  if (field.startsWith("max")) {
+    return requested > factory ? original : requested; // widening a max = reject
+  }
+  if (field.startsWith("min")) {
+    return requested < factory ? original : requested; // widening a min = reject
+  }
   return requested;
 }
 
@@ -215,7 +286,9 @@ export class DeterministicMockClient implements FaceModuleClient {
     const emit = async (snap: LiveSnapshot) => {
       for (let i = 0; i < 3; i++) {
         if (signal?.aborted) {
-          throw Object.assign(new Error("Capture aborted"), { name: "AbortError" });
+          throw Object.assign(new Error("Capture aborted"), {
+            name: "AbortError",
+          });
         }
         await onIntermediate?.(snap);
         await new Promise((r) => setTimeout(r, 30));
@@ -246,7 +319,12 @@ export class DeterministicMockClient implements FaceModuleClient {
       await emit({
         numberOfFaces: 1,
         quality,
-        boundingBox: { x: 60, y: 40, width: side, height: Math.round(side * 1.2) },
+        boundingBox: {
+          x: 60,
+          y: 40,
+          width: side,
+          height: Math.round(side * 1.2),
+        },
         landmarks: [
           { type: "left_eye", x: 90, y: 110 },
           { type: "right_eye", x: 170, y: 110 },
@@ -260,9 +338,18 @@ export class DeterministicMockClient implements FaceModuleClient {
         quality,
         numberOfFaces: 1,
         template: faceTemplate(MOCK_LIVE_TEMPLATE),
-        image: { modality: "face", datatype: "png", data: PLACEHOLDER_PNG_BASE64 },
+        image: {
+          modality: "face",
+          datatype: "png",
+          data: PLACEHOLDER_PNG_BASE64,
+        },
         liveness: { spoofScore, passed },
-        boundingBox: { x: 60, y: 40, width: side, height: Math.round(side * 1.2) },
+        boundingBox: {
+          x: 60,
+          y: 40,
+          width: side,
+          height: Math.round(side * 1.2),
+        },
         landmarks: [
           { type: "left_eye", x: 90, y: 110 },
           { type: "right_eye", x: 170, y: 110 },
@@ -328,9 +415,14 @@ export class DeterministicMockClient implements FaceModuleClient {
     });
   }
 
-  captureHighRes(_opts: CaptureOptions, _signal?: AbortSignal): Promise<HighResCapture> {
+  captureHighRes(
+    _opts: CaptureOptions,
+    _signal?: AbortSignal,
+  ): Promise<HighResCapture> {
     const scenario = this.#scenario();
-    if (scenario === "device-error") return Promise.reject(deviceError("captureHighRes"));
+    if (scenario === "device-error") {
+      return Promise.reject(deviceError("captureHighRes"));
+    }
     if (scenario === "no-face") {
       return Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 });
     }
@@ -352,12 +444,18 @@ export class DeterministicMockClient implements FaceModuleClient {
   setParameters(patch: DeviceParametersPatch): Promise<SetParametersResult> {
     const results: Record<string, ParameterWriteResult> = {};
     const p = this.#params as unknown as Record<string, number>;
-    for (const [field, requested] of Object.entries(patch as Record<string, number>)) {
+    for (
+      const [field, requested] of Object.entries(
+        patch as Record<string, number>,
+      )
+    ) {
       const original = p[field];
       const effective = mockEffectiveParam(field, requested, original);
       p[field] = effective;
       // Status mirrors the lib's read-back classifier semantics (applied/clamped/rejected).
-      const status = effective === requested ? "applied" : (effective === original ? "rejected" : "clamped");
+      const status = effective === requested
+        ? "applied"
+        : (effective === original ? "rejected" : "clamped");
       results[field] = { requested, effective, status };
     }
     return Promise.resolve({ results } as SetParametersResult);
@@ -422,5 +520,20 @@ export class DeterministicMockClient implements FaceModuleClient {
       match: matchScore >= opts.minimalMatchScore,
       matchScore,
     });
+  }
+
+  getDiagnostics(): Promise<DiagnosticsResult> {
+    if (this.#scenario() === "device-error") {
+      return Promise.reject(deviceError("getDiagnostics"));
+    }
+    const b = new TextEncoder().encode("FACEPOD-DIAG-ECHO");
+    return Promise.resolve({ ok: true, match: true, sent: b, received: b });
+  }
+
+  getLogs(code: DiagnosticLogCode, _signal?: AbortSignal): Promise<LogResult> {
+    if (this.#scenario() === "device-error") {
+      return Promise.reject(deviceError("getLogs"));
+    }
+    return Promise.resolve(mockLogResult(code));
   }
 }

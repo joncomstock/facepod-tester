@@ -47,8 +47,24 @@ function frameClient(frames: Promise<VideoFrame>[]): FaceModuleClient {
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
 }
 
@@ -180,8 +196,24 @@ Deno.test("failed connect leaves no live session and disposes the client", async
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
     close: () => {
       closed = true;
     },
@@ -263,7 +295,10 @@ Deno.test("readFrame populates latestSnapshot after a capture writes it", async 
   await s.capture({ minimalQuality: 0.7 }); // streams onIntermediate → buffer
   const r = await s.readFrame(-1n);
   assert(r.snapshot !== null, "snapshot should be buffered after a capture");
-  assert(r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0, "age computed server-side");
+  assert(
+    r.snapshotAgeMs !== null && r.snapshotAgeMs >= 0,
+    "age computed server-side",
+  );
   await s.disconnect();
 });
 
@@ -333,8 +368,24 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -344,7 +395,10 @@ Deno.test("failed reconnect (op wedged past the drain bound) restores #closing s
   const capP = s.capture({ minimalQuality: 0.5 }); // hangs, holds the busy lock
 
   // Reconnect: the wedged op won't settle within 50ms → connect's #track BusyErrors.
-  await assertRejects(() => s.connect({ mock: false, mockScenario: "good" }), Error);
+  await assertRejects(
+    () => s.connect({ mock: false, mockScenario: "good" }),
+    Error,
+  );
 
   // The frame lane must be RESTORED on the retained session — not stuck closed.
   const r = await s.readFrame(-1n);
@@ -385,8 +439,24 @@ Deno.test("teardown refuses to dispose while a frame read is still in flight (se
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -434,8 +504,24 @@ Deno.test("readFrame propagates a real read failure (records lastError + throws,
     processImage: () =>
       Promise.resolve({ quality: 0, numberOfFaces: 0, isCaptured: false }),
     matchWithTemplate: () => Promise.resolve({ match: false, matchScore: 0 }),
-    captureHighRes: () => Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
+    captureHighRes: () =>
+      Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 }),
     setParameters: () => Promise.resolve({ results: {} }),
+    getDiagnostics: () =>
+      Promise.resolve({
+        ok: true,
+        match: true,
+        sent: new Uint8Array(),
+        received: new Uint8Array(),
+      }),
+    getLogs: (code) =>
+      Promise.resolve({
+        code,
+        lines: [],
+        byteLength: 0,
+        sourceByteLength: 0,
+        truncatedBytes: 0,
+      }),
   };
   const factory: LifecycleFactory = () =>
     Promise.resolve(new FaceModuleLifecycle({ ...FACEPOD_DEFAULTS }, client));
@@ -447,7 +533,10 @@ Deno.test("readFrame propagates a real read failure (records lastError + throws,
   // as a silent frame:null. It is also recorded for GET /api/status.
   await assertRejects(() => s.readFrame(-1n), Error, "frame read boom");
   const err = s.status().lastError;
-  assert(err !== null, "a thrown read error must be recorded, not silently masked");
+  assert(
+    err !== null,
+    "a thrown read error must be recorded, not silently masked",
+  );
   assertEquals(err?.message, "frame read boom");
   await s.disconnect();
 });
@@ -561,7 +650,11 @@ Deno.test("setParameters (mock): applied round-trip; getParameters reflects the 
   await s.openCamera();
 
   const r = await s.setParameters({ maxYaw: 10, streamMode: 1 });
-  assertEquals(r.results.maxYaw, { requested: 10, effective: 10, status: "applied" });
+  assertEquals(r.results.maxYaw, {
+    requested: 10,
+    effective: 10,
+    status: "applied",
+  });
   assertEquals(r.results.streamMode?.status, "applied");
   assertEquals((await s.getParameters()).maxYaw, 10);
 
@@ -575,11 +668,19 @@ Deno.test("setParameters (mock): clamped and rejected statuses", async () => {
 
   // Widening a MAX past the factory default (15) is rejected → unchanged.
   const rej = await s.setParameters({ maxYaw: 90 });
-  assertEquals(rej.results.maxYaw, { requested: 90, effective: 15, status: "rejected" });
+  assertEquals(rej.results.maxYaw, {
+    requested: 90,
+    effective: 15,
+    status: "rejected",
+  });
 
   // A match-score threshold above 1 clamps to the [0,1] boundary.
   const clamp = await s.setParameters({ recMinMatchScoreL1: 1.5 });
-  assertEquals(clamp.results.recMinMatchScoreL1, { requested: 1.5, effective: 1, status: "clamped" });
+  assertEquals(clamp.results.recMinMatchScoreL1, {
+    requested: 1.5,
+    effective: 1,
+    status: "clamped",
+  });
 
   await s.disconnect();
 });
@@ -589,9 +690,106 @@ Deno.test("setParameters refuses non-allowlisted keys (UnsupportedParameterError
   await s.connect(MOCK_CONFIG);
   await s.openCamera();
   await assertRejects(
-    () => s.setParameters({ cameraEnableHighRes: 1 } as Parameters<typeof s.setParameters>[0]),
+    () =>
+      s.setParameters(
+        { cameraEnableHighRes: 1 } as Parameters<typeof s.setParameters>[0],
+      ),
     Error,
     "cameraEnableHighRes",
   );
+  await s.disconnect();
+});
+
+Deno.test("getDiagnostics returns ok/match when camera open", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const d = await s.getDiagnostics();
+  assertEquals(d.ok, true);
+  await s.disconnect();
+});
+
+Deno.test("getDiagnostics throws when not connected", async () => {
+  const s = new FacePodSession();
+  await assertRejects(() => s.getDiagnostics());
+});
+
+Deno.test("getLogs page 1 fetches; cursor>0 is served from cache (no device op)", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p1 = await s.getLogs("hfapi", { cursor: 0, limit: 500 });
+  assertEquals(p1.lines.length, 500);
+  assertEquals(p1.nextCursor, 500);
+  // Prove the cache hit OBSERVABLY: flip the device to error, then page. A cursor>0
+  // request that re-fetched would now throw; a cache read succeeds. (A weaker test
+  // that only asserts pagination would pass even if every page re-fetched.)
+  s.setMockScenario("device-error");
+  const p2 = await s.getLogs("hfapi", { cursor: 500, limit: 500 });
+  assertEquals(p2.lines.length, 500);
+  assertEquals(p2.nextCursor, 1000);
+  // cursor=0 ALWAYS re-fetches a fresh page 1 → now hits the erroring device.
+  await assertRejects(() => s.getLogs("hfapi", { cursor: 0 }));
+  await s.disconnect();
+});
+
+Deno.test("getLogs limit is clamped to the hard max", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getLogs("hfapi", { cursor: 0, limit: 99999 });
+  assert(p.lines.length <= 1000);
+  await s.disconnect();
+});
+
+Deno.test("getLogs truncated flag surfaces a byte-capped blob", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  const p = await s.getLogs("hfapiError", { cursor: 0 });
+  assertEquals(p.truncated, true);
+  assert(p.truncatedBytes > 0);
+  await s.disconnect();
+});
+
+Deno.test("getLogs re-fetches after closeCamera clears the cache", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+  await s.getLogs("hfapi", { cursor: 0 });
+  await s.closeCamera();
+  await s.openCamera();
+  // Cache cleared → a cursor>0 request must re-fetch (not read a stale/empty page).
+  // Prove it hits the device: flip to error and assert it rejects (a served-from-cache
+  // page would have succeeded).
+  s.setMockScenario("device-error");
+  await assertRejects(() => s.getLogs("hfapi", { cursor: 500 }));
+  await s.disconnect();
+});
+
+Deno.test("getLogs terminal page returns nextCursor null", async () => {
+  const s = new FacePodSession();
+  await s.connect(MOCK_CONFIG);
+  await s.openCamera();
+
+  // mockLogResult in mockClient.ts builds the "hfapi" fixture as 1200 JSON
+  // lines (loop i in [0, 1200)) plus 1 trailing malformed line ("{ this is
+  // not valid json") appended for every non-empty code → 1201 lines total.
+  const totalLines = 1200 + 1;
+  const limit = 1000; // LOG_PAGE_MAX_LIMIT — the hard per-page cap.
+
+  // Page 1 fetches the full snapshot (1201 lines) and caches it, but only
+  // slices out the first 1000 — leaving a 201-line tail.
+  const p1 = await s.getLogs("hfapi", { cursor: 0, limit });
+  assertEquals(p1.lines.length, limit);
+  assertEquals(p1.nextCursor, limit);
+
+  // Paging to the tail (cursor 1000, limit 1000) exhausts the remaining 201
+  // lines: cursor + limit (2000) >= totalLines (1201), so this MUST be the
+  // terminal page — nextCursor is null, not another (empty) page number.
+  const p2 = await s.getLogs("hfapi", { cursor: p1.nextCursor!, limit });
+  assertEquals(p2.lines.length, totalLines - limit);
+  assertEquals(p2.nextCursor, null);
+
   await s.disconnect();
 });
