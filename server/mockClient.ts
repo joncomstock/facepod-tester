@@ -18,16 +18,20 @@ import {
   type CaptureResult,
   type DeviceInfo,
   type DeviceParameters,
+  type DeviceParametersPatch,
   type FaceImage,
   FaceModuleApiError,
   type FaceModuleClient,
   type FaceTemplate,
+  type HighResCapture,
   type LiveSnapshot,
   type MatchOptions,
   type MatchResult,
   type OpenContextOptions,
+  type ParameterWriteResult,
   type ProcessOptions,
   type ProcessResult,
+  type SetParametersResult,
   type VideoFrame,
 } from "@eai/hid/facepod";
 
@@ -143,6 +147,17 @@ export class DeterministicMockClient implements FaceModuleClient {
       dayToNightViscosity: 5, nightToDayViscosity: 5,
       aeBoundingBoxTimeoutMs: 2000, captureStabilization: 1, encodingJpegQuality: 90,
     });
+  }
+
+  setParameters(patch: DeviceParametersPatch): Promise<SetParametersResult> {
+    // Stateless deterministic mock: echo each requested write back as "applied".
+    // getParameters returns a fixed snapshot, so there is no mutable store to reflect
+    // into — consistent with this client's no-I/O contract.
+    const results: Record<string, ParameterWriteResult> = {};
+    for (const [field, requested] of Object.entries(patch as Record<string, number>)) {
+      results[field] = { requested, effective: requested, status: "applied" };
+    }
+    return Promise.resolve({ results } as SetParametersResult);
   }
 
   // Pure preview read; mirrors the lib's getVideoFrame (no op-lock, may be called
@@ -290,6 +305,27 @@ export class DeterministicMockClient implements FaceModuleClient {
       positioningFeedback: { raw: 0, ok: true, flags: [], unknownBits: 0 },
       isCaptured: quality >= opts.minimalQuality && passed,
       faceStatus: passed ? "ok" : "spoof_suspected",
+    });
+  }
+
+  captureHighRes(_opts: CaptureOptions, _signal?: AbortSignal): Promise<HighResCapture> {
+    const scenario = this.#scenario();
+    if (scenario === "device-error") return Promise.reject(deviceError("captureHighRes"));
+    if (scenario === "no-face") {
+      return Promise.resolve({ hasImage: false, quality: 0, numberOfFaces: 0 });
+    }
+    // Deterministic synthetic still: reuse the 1x1 placeholder PNG so the metadata +
+    // binary-download path is exercised without real high-res bytes.
+    const bytes = decodeBase64(PLACEHOLDER_PNG_BASE64);
+    return Promise.resolve({
+      hasImage: true,
+      bytes,
+      format: "png",
+      width: 1,
+      height: 1,
+      byteLength: bytes.length,
+      quality: 0.92,
+      numberOfFaces: 1,
     });
   }
 
