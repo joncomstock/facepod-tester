@@ -23,7 +23,7 @@ import {
 import { normalizeError } from "./errors.ts";
 import { checkRequestGate, TESTER_HEADER } from "./security.ts";
 import { FacePodSession } from "./facepodSession.ts";
-import { isMockScenario, MOCK_SCENARIOS } from "./mockClient.ts";
+import { isMockScenario, MOCK_SCENARIOS } from "@eai/hid/facepod";
 import { toFramePayload } from "./videoFramePayload.ts";
 import { toDiagnosticsWire } from "./diagnosticsWire.ts";
 import { type LogPage, parseLogQuery, toLogEntries } from "./logEntries.ts";

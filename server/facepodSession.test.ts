@@ -772,7 +772,7 @@ Deno.test("getLogs terminal page returns nextCursor null", async () => {
   await s.connect(MOCK_CONFIG);
   await s.openCamera();
 
-  // mockLogResult in mockClient.ts builds the "hfapi" fixture as 1200 JSON
+  // DeterministicMockClient (@eai/hid/facepod) builds the "hfapi" fixture as 1200 JSON
   // lines (loop i in [0, 1200)) plus 1 trailing malformed line ("{ this is
   // not valid json") appended for every non-empty code → 1201 lines total.
   const totalLines = 1200 + 1;

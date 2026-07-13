@@ -19,7 +19,7 @@ import {
   isMockScenario,
   MOCK_SCENARIOS,
   type MockScenario,
-} from "./mockClient.ts";
+} from "@eai/hid/facepod";
 
 /** Raw, untrusted connect input (env-derived base, or a /api/connect body). */
 export interface ConnectInput {

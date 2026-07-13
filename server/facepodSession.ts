@@ -16,6 +16,7 @@
 import {
   type CaptureResult,
   createFaceModuleFfi,
+  DeterministicMockClient,
   type DeviceInfo,
   type DeviceParameters,
   type DeviceParametersPatch,
@@ -29,13 +30,13 @@ import {
   type LiveSnapshot,
   type LogResult,
   type MatchResult,
+  type MockScenario,
   type ProcessResult,
   type SetParametersResult,
   type VideoFrame,
 } from "@eai/hid/facepod";
 
 import { ConfigError, type ResolvedConfig } from "./config.ts";
-import { DeterministicMockClient, type MockScenario } from "./mockClient.ts";
 import { type NormalizedError, normalizeError } from "./errors.ts";
 
 export interface SessionStatus {
@@ -175,7 +176,10 @@ export class FacePodSession {
   // un-downloaded first). In-memory only (PII: never written to disk); one-shot (evicted on
   // fetch), lazily TTL-expired, and capped so undownloaded ~7 MB stills can't accumulate.
   // Cleared on teardown.
-  #highRes = new Map<string, { bytes: Uint8Array; format: ImageDatatype; createdAt: number }>();
+  #highRes = new Map<
+    string,
+    { bytes: Uint8Array; format: ImageDatatype; createdAt: number }
+  >();
   readonly #highResTtlMs = 60_000;
   readonly #highResMax = 4;
   // Diagnostics log cache: one decoded channel per code so pagination pages the SAME
@@ -626,7 +630,10 @@ export class FacePodSession {
     });
   }
 
-  captureHighRes(params: CaptureParams, signal?: AbortSignal): Promise<HighResMeta> {
+  captureHighRes(
+    params: CaptureParams,
+    signal?: AbortSignal,
+  ): Promise<HighResMeta> {
     return this.#track(async () => {
       const r = await this.#require().device.captureHighRes(
         {
@@ -646,14 +653,23 @@ export class FacePodSession {
         const oldest = this.#highRes.keys().next().value as string;
         this.#highRes.delete(oldest);
       }
-      return { hasImage: true, id, width: r.width, height: r.height, encoding: format, byteLength: r.bytes.length };
+      return {
+        hasImage: true,
+        id,
+        width: r.width,
+        height: r.height,
+        encoding: format,
+        byteLength: r.bytes.length,
+      };
     });
   }
 
   /** Take a buffered high-res image by id (one-shot: evicts on fetch). Bypasses #track —
    *  it reads buffered JS bytes, touches no native handle. Returns null for an unknown,
    *  already-fetched, or TTL-expired id. */
-  takeHighResImage(id: string): { bytes: Uint8Array; format: ImageDatatype } | null {
+  takeHighResImage(
+    id: string,
+  ): { bytes: Uint8Array; format: ImageDatatype } | null {
     this.#sweepHighRes();
     const h = this.#highRes.get(id);
     if (!h) return null;
