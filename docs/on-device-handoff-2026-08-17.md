@@ -1,9 +1,30 @@
 # On-device handoff — FacePod changeset + demo integration
 
-**Date:** 2026-08-17 · **Operator:** Jon, at the Windows kiosk · **Device:** HID U.ARE.U Face Module (serial 5301672200098)
+**Written:** 2026-08-17 · **Run + corrected:** 2026-08-18 · **Device:** HID U.ARE.U Face Module
+(HF API 1.1.0.336)
 
 Everything below is copy-pasteable. Each step states its **PASS** condition. Stop at the first
 FAIL and record the output — later steps assume earlier ones passed.
+
+## STATUS after the 2026-08-18 run
+
+**Validated on hardware.** The changeset is pushed and the kiosk confirmed it against a real
+face: library `c7de44b`, tester `2ef7d3f`, demo `a9a1f59`.
+
+| | Result |
+|---|---|
+| §0 prerequisites | all pass — Deno **2.9.2** (Windows, V8 14.9, TS 6.0.3) |
+| §1 tester | 8 of 9 pass; **§1.8 is the one open gate** |
+| §1.2 the correctness fix | **PASS** — unmeasured capture returns `{passed: false}` with the `spoofScore` key **absent** (was `{spoofScore: 0, passed: false}`) |
+| §1.3 | **PASS** — HTTP 400, was 500 |
+| §1.5 | **PASS** — hex read back exactly `46414345504f442d444941472d4543484f` |
+| §2 demo | **PASS** on lineage B — 634/0, both boarding flows walked, ATR200 unplug/replug clean (fault 2.7 s, recovery ~2 s, no cross-device fault leakage) |
+| library suite | 243 passed + 1 platform-skipped on Windows = 244, matching the macOS baseline |
+
+**Still open: §1.8 only.** It needs a kiosk with a physically reachable camera cable; the
+2026-08-18 machine could not reach one. Everything else in §1 and §2 is closed.
+
+The corrections from that run are folded in below and marked **[corrected 08-18]**.
 
 ---
 
@@ -12,7 +33,13 @@ FAIL and record the output — later steps assume earlier ones passed.
 > **Where each step runs:** §0.0 is on the **dev machine** (that is where the uncommitted work
 > lives). Everything from §0.0b onward is on the **Windows kiosk**.
 
-### 0.0 Publish the work — NOTHING IS COMMITTED YET · *dev machine*
+### 0.0 Publish the work — ✅ DONE 2026-08-18 · *dev machine*
+
+> **Completed.** Pushed from the macOS dev machine: hardware-libs `c5e70ae..c7de44b`
+> (`feat/hid-facepod`), facepod-tester `81537a6..2ef7d3f` (`feature/diagnostics-slice2`), and
+> mobile-boarding `a9a1f59` to the **new** branch `feat/facepod-demo-liveness-cleanup` — see
+> §2.5.1 for why it could not go to `feat/facepod-config-system`. The procedure below is retained
+> as the record of what was done. Skip to §0.0b.
 
 **This is the hard blocker.** At the time of writing, all three repos sit at **0 ahead / 0
 behind** their upstreams, and the entire changeset is uncommitted working-tree state on the dev
@@ -64,35 +91,35 @@ The kiosk needs **two sibling checkouts** — the tester resolves the library th
 path (`../hardware-libs/…`), so the layout is load-bearing:
 
 ```
-C:\dev\
+C:\Demos\
   hardware-libs\      ← branch feat/hid-facepod
   facepod-tester\     ← branch feature/diagnostics-slice2
-  mobile-boarding\    ← branch feat/facepod-config-system   (only for section 2)
+  mobile-boarding\    ← branch feat/facepod-demo-liveness-cleanup  (only for section 2)
 ```
 
 Fresh clone:
 
 ```cmd
-mkdir C:\dev && cd C:\dev
+mkdir C:\Demos && cd C:\Demos
 git clone -b feat/hid-facepod https://github.com/elevationai/hardware-libs.git
 git clone -b feature/diagnostics-slice2 https://github.com/joncomstock/facepod-tester.git
-git clone -b feat/facepod-config-system --recurse-submodules https://github.com/elevationai/mobile-boarding.git
+git clone -b feat/facepod-demo-liveness-cleanup --recurse-submodules https://github.com/elevationai/mobile-boarding.git
 ```
 
 Already cloned — update in place:
 
 ```cmd
-cd C:\dev\hardware-libs   && git fetch origin && git checkout feat/hid-facepod          && git pull
-cd C:\dev\facepod-tester  && git fetch origin && git checkout feature/diagnostics-slice2 && git pull
-cd C:\dev\mobile-boarding && git fetch origin && git checkout feat/facepod-config-system && git pull
-cd C:\dev\mobile-boarding && git submodule update --init --recursive
+cd C:\Demos\hardware-libs   && git fetch origin && git checkout feat/hid-facepod          && git pull
+cd C:\Demos\facepod-tester  && git fetch origin && git checkout feature/diagnostics-slice2 && git pull
+cd C:\Demos\mobile-boarding && git fetch origin && git checkout feat/facepod-demo-liveness-cleanup && git pull
+cd C:\Demos\mobile-boarding && git submodule update --init --recursive
 ```
 
 **PASS:** each repo reports the expected branch and `git status` is clean. Confirm the tester
 actually has this work — a missing `toErrorDetail` means you pulled a stale branch:
 
 ```cmd
-cd C:\dev\facepod-tester && findstr /C:"toErrorDetail" src\api.ts
+cd C:\Demos\facepod-tester && findstr /C:"toErrorDetail" src\api.ts
 ```
 
 > `mobile-boarding` carries the `vendor/hardware-libs` **submodule** — a plain `git pull` does
@@ -125,7 +152,7 @@ swap that one line to a relative path and **do not commit it**:
 "@eai/hid/facepod": "../hardware-libs/hid/facepod/mod.ts",
 ```
 
-With the 0.0b layout that resolves to the sibling clone — `C:\dev\hardware-libs`, on branch
+With the 0.0b layout that resolves to the sibling clone — `C:\Demos\hardware-libs`, on branch
 `feat/hid-facepod`. Confirm:
 
 ```cmd
@@ -141,7 +168,7 @@ deno check server/main.ts
 
 **Once PR #55 merges and `@eai/hid` publishes to JSR, skip 0.2 entirely** — the committed
 `jsr:` pin resolves on its own and no sibling checkout is needed. At that point
-`C:\dev\hardware-libs` is only required if you want to test library work that is still
+`C:\Demos\hardware-libs` is only required if you want to test library work that is still
 unlanded.
 
 ### 0.3 Camera exclusivity
@@ -168,24 +195,40 @@ down, then run the demo section. Never both.
 ## 1. Tester — changeset regression pass
 
 ```cmd
-cd facepod-tester
+cd C:\Demos\facepod-tester
 npm install
 npm run build
+set FACEPOD_DLL_PATH=C:\Users\Facepod\Desktop\FacePODDemo_MattWolfe\HidFace.dll
 deno task dev
 ```
 Then in a second terminal `npm run dev` → http://localhost:5174 (or use the built UI on 8787).
 
-DLL path is baked in at `src/live/connectionSettings.ts`:
-`C:\Users\Facepod\Desktop\FacePODDemo_MattWolfe\HidFace.dll`. If the DLL has moved, that is the
-one line to change.
+**[corrected 08-18] `FACEPOD_DLL_PATH` is required, not optional.** The loader derives `dllDir`
+from it, and that directory is what lets `HidFace.dll`'s siblings resolve — `HFApiWrapper.dll`,
+`ICypher.dll`, and three `Accord*.dll`. Without it the load fails as *"The specified module could
+not be found"*, which names the DLL you pointed at rather than the sibling that is actually
+missing. The path baked into `src/live/connectionSettings.ts` covers Go Live in the UI; the env
+var covers the backend's own loader.
+
+**[corrected 08-18] Rebuild before trusting anything you see in the UI.** `dist/` is gitignored,
+so a stale bundle is served silently with no warning — the copy found on the kiosk was five weeks
+older than its source. `npm run build` above is not optional for UI-based observations.
 
 ### 1.1 Connect + camera open — proves `Promise.try` and the `#cameraOpen` removal
 
 Click **Go Live**.
 
-**PASS:** device info populates (serial `5301672200098`, firmware, HF API version), and the
-status strip shows camera open. The `cameraOpen` flag now derives from `device.isOpen` rather
-than a mirrored field — if it ever disagrees with reality, that is the regression.
+**PASS:** the status strip shows camera open, and device info populates with the HF API version
+(e.g. `1.1.0.336`). The `cameraOpen` flag now derives from `device.isOpen` rather than a mirrored
+field — if it ever disagrees with reality, that is the regression.
+
+**[corrected 08-18] `deviceId` reads `"unknown"` here, and that is correct.** An earlier version
+of this step expected the serial `5301672200098`; that expectation was wrong. Serial and firmware
+require an open context — `hidFaceFfi.ts:627` caches them inside `open()`, and `getInfo()` falls
+back to `"unknown"` when they are absent (`:365`). The session calls `connect()` → `getInfo()`
+*before* `openCamera()`, so a pre-open read has no serial to report. To see it, re-read
+device-info **after** the camera is open. Both consumers report `"unknown"` at connect.
+
 **FAIL signature for a stale Deno:** `Promise.try is not a function` → go back to 0.1.
 
 ### 1.2 Unmeasured liveness — **the correctness fix; the most important step here**
@@ -253,7 +296,11 @@ Upload a reference JPEG, then a PNG.
 **PASS:** both accepted; `PNG`/`JPG` uppercase also accepted (the wire boundary case-folds).
 Send a bogus datatype → **422** naming the datatype.
 
-### 1.8 Freshness UI — proves the collapsed `freshnessStatus`
+### 1.8 Freshness UI — proves the collapsed `freshnessStatus` · ⚠ THE ONE OPEN GATE
+
+**[status 08-18] Not yet run.** The 2026-08-18 kiosk had no physically reachable camera cable,
+so the pull-the-cable half could not be performed. This is the only unvalidated step in the whole
+changeset — it needs a machine where the USB cable can be reached.
 
 With the watch loop running, unplug nothing; just stop watching.
 **PASS:** both the telemetry gauges and the video feed go to **paused** (not "No signal").
@@ -293,16 +340,23 @@ The bump is a **commit in `mobile-boarding`**, not a local checkout — a submod
 travels if it is committed and pushed. `<sha>` is the merge commit of PR #55 on
 `hardware-libs`; it does not exist until #55 lands, so this step is **blocked on that merge**.
 
+**[corrected 08-18] The bump must be SURGICAL, not a wholesale repoint.** The pin `5e1b4fa` has
+the ATR200 driver but the old facepod; `feat/hid-facepod` (`c7de44b`) has the fixed facepod but
+**no `access-is` package at all**. Repointing the submodule wholesale silently deletes barcode
+scanning. Check out only the one path:
+
 ```cmd
-cd C:\dev\mobile-boarding\vendor\hardware-libs
-git fetch origin
-git checkout <sha-of-merged-#55>
-cd C:\dev\mobile-boarding
-git add vendor/hardware-libs
-git commit -m "Bump vendored hardware-libs past PR #55 (honest liveness contract)"
-git push
-git submodule status                        REM verify the new sha, no leading +/-
+cd C:\Demos\mobile-boarding\vendor\hardware-libs
+git fetch origin feat/hid-facepod
+git checkout c7de44b -- hid/facepod          REM ONLY this path
 ```
+
+Everything else stays at `5e1b4fa`, so `access-is/barcode/scanner.ts` and `responseDemux.ts`
+(PR #35) survive. Verified on 2026-08-18: 634/0 and the honest liveness contract on device.
+
+**This leaves the submodule dirty, not a committed pointer.** It is a validation technique, not
+the integration — it will not survive a clone, and it must not be mistaken for the landed state.
+The real bump still waits on #55 merging, and then a committed `git add vendor/hardware-libs`.
 
 **PASS:** `git submodule status` shows the new SHA with a leading space (checked out and
 matching). A leading `+` means the working tree differs from the committed pointer — you
@@ -315,13 +369,23 @@ declare `spoofScore` optional, so they are correct-and-forward-compatible today 
 ### 2.2 Demo gates before touching hardware
 
 ```cmd
-cd mobile-boarding\demos\facepod-boarding
-deno task check
-deno task test
-npm install && npx tsc --noEmit
+cd C:\Demos\mobile-boarding\demos\facepod-boarding
+npm install
+deno install
+deno task check --allow-import=code.cuss2.app:443
+deno task test  --allow-import=code.cuss2.app:443
+npx tsc --noEmit
 ```
 
 **PASS:** check exit 0 (three entry points); test **634 passed | 0 failed**; tsc exit 0.
+
+**[corrected 08-18] Neither Deno task runs as originally written on Deno 2.9.2.** Two additions
+are required:
+
+- `--allow-import=code.cuss2.app:443` — that host is not on Deno's default import allow-list, and
+  the demo's import map resolves libraries from it by exact version.
+- `deno install` — `npm install` alone does not materialize `npm:` specifiers, so `npm:jose@^5`
+  fails first without it.
 
 > `deno task check` only covers `server/main.ts`, `server/agent/main.ts` and the seeder — test
 > files are **outside that graph**. A test-only type error therefore shows up in `deno task test`
@@ -338,7 +402,17 @@ npm run dev
 ```
 → backend 8787, UI http://localhost:5175
 
-Walk the boarding flow: scan a boarding pass → face capture → CBP/TVS → result.
+Walk the boarding flow: scan a boarding pass → face capture → CBP/TVS → result. Do it twice —
+once with a mismatched pass (expect red) and once matched (expect green). Both walked clean on
+2026-08-18.
+
+**[corrected 08-18] Never poll the device-health supervisor faster than ~32 s.** The ATR200
+unplug/replug path is healthy — failure detected in 2.7 s, recovery ~2 s, failing scans return
+`USB device not found: VID=0db5, PID=0142` in under 100 ms rather than blocking, and
+`camera:healthy` never wavers while the scanner is down (no fault leakage across device
+boundaries). An earlier run appeared to show a 31-second recovery lag; that was a sampler firing
+30-second scans back-to-back and starving the probe, not a supervisor defect. The same trap will
+catch the next person.
 
 **PASS:**
 - Capture completes and the liveness verdict matches section 1.2's rules (**after** the bump)
@@ -371,7 +445,7 @@ Published and fine as-is — leave them alone: `@eai/async` (1.0.1), `@eai/loggi
 | Repo | Branch to check out | Provides | State |
 |---|---|---|---|
 | `hardware-libs` | **must be created** — see 2.5.2 | FacePod (#55) + ATR200 | no single branch has both |
-| `mobile-boarding` | `feat/facepod-domain-eventing` @ `041729b` (2026-08-15) | newest BioBoarding demo; contains `feat/facepod-config-system` | on origin |
+| `mobile-boarding` | **`feat/facepod-demo-liveness-cleanup`** @ `a9a1f59` — "lineage B" | the BioBoarding demo **carrying the liveness changeset**; validated 08-18 at 634/0 | on origin |
 | `domain` | `feat/register-facepod-event-codes` @ `68f1fa7` (2026-08-15) | `@eai/models` 1.5.0 (event codes 349–353) **and** `@eai/api-client` 0.2.0 | on origin |
 | `facepod-tester` | `feature/diagnostics-slice2` | FacePod tester | see 0.0 |
 
@@ -388,7 +462,7 @@ branches** off `master` (`c5e2b9f`). Neither contains the other:
 BioBoarding needs the scanner and the FacePod module together, so build the branch:
 
 ```bash
-cd C:\dev\hardware-libs
+cd C:\Demos\hardware-libs
 git checkout -b kiosk/facepod-atr200-integ origin/feat/hid-facepod
 git merge origin/feat/atr200-barcode        # disjoint trees; conflicts unlikely
 deno task test                              # expect green before trusting it on-device
@@ -399,7 +473,7 @@ Then merge §0.0's committed FacePod changeset into it if it is not already an a
 ### 2.5.3 Kiosk layout — four sibling checkouts
 
 ```
-C:\dev\
+C:\Demos\
   hardware-libs\    ← kiosk/facepod-atr200-integ   (created in 2.5.2)
   domain\           ← feat/register-facepod-event-codes
   mobile-boarding\  ← feat/facepod-domain-eventing
@@ -407,13 +481,13 @@ C:\dev\
 ```
 
 ```cmd
-cd C:\dev\domain          && git fetch origin && git checkout feat/register-facepod-event-codes && git pull
-cd C:\dev\mobile-boarding && git fetch origin && git checkout feat/facepod-domain-eventing      && git pull
+cd C:\Demos\domain          && git fetch origin && git checkout feat/register-facepod-event-codes && git pull
+cd C:\Demos\mobile-boarding && git fetch origin && git checkout feat/facepod-domain-eventing      && git pull
 ```
 
 ### 2.5.4 Import-map overrides
 
-**`C:\dev\mobile-boarding\demos\facepod-boarding\deno.jsonc`** — replace the `@eai/*` entries.
+**`C:\Demos\mobile-boarding\demos\facepod-boarding\deno.jsonc`** — replace the `@eai/*` entries.
 Paths are relative to that file, so `../../../` reaches the sibling checkouts. **Local testing
 only — do not commit.**
 
@@ -436,7 +510,7 @@ only — do not commit.**
 "@eai/api-client/telemetry": "../../../domain/api-client/src/telemetry/mod.ts",
 ```
 
-**`C:\dev\facepod-tester\deno.jsonc`** (this is §0.2's swap; the tester is a sibling, so one `../`):
+**`C:\Demos\facepod-tester\deno.jsonc`** (this is §0.2's swap; the tester is a sibling, so one `../`):
 
 ```jsonc
 "@eai/hid/facepod": "../hardware-libs/hid/facepod/mod.ts",
@@ -445,24 +519,31 @@ only — do not commit.**
 **PASS:**
 
 ```cmd
-cd C:\dev\mobile-boarding\demos\facepod-boarding && deno task check && deno task test
-cd C:\dev\facepod-tester && deno check server/main.ts
+cd C:\Demos\mobile-boarding\demos\facepod-boarding && deno task check && deno task test
+cd C:\Demos\facepod-tester && deno check server/main.ts
 ```
 
 Local paths **inline** at bundle time whereas `jsr:` stays external, so never commit these —
 they change what a published artifact contains, not just where it resolves from.
 
-### 2.5.5 Two risks to know before you start
+### 2.5.5 Lineage — settled by the 2026-08-18 run
 
-1. **Nothing has been run in this combination.** The 634 demo tests were green against the
-   *older* lineage (`feat/facepod-config-system` + the vendored submodule + `access-is/barcode`).
-   Moving to `feat/facepod-domain-eventing` + `access-is/atr200` + local `domain` is newer on
-   every axis and unproven together. If you want the tested-but-older path instead, use local
-   `feat/facepod-config-system` with `integ/facepod-review` and skip the `domain` overrides.
-2. **The uncommitted demo changeset is on the older lineage.** Local `feat/facepod-config-system`
-   (`071ffec`) has **diverged** from `origin/feat/facepod-config-system` (`f5d43a8`) — 3 behind,
-   5 ahead. Those 9 demo files (optional `spoofScore`, `Promise.try`, the name-based error test)
-   must be ported forward onto `feat/facepod-domain-eventing`, or they are simply absent.
+**Run lineage B: `feat/facepod-demo-liveness-cleanup`.** It carries the liveness changeset and
+was validated on hardware at 634/0 with both boarding flows walked.
+
+**Lineage A (`feat/facepod-domain-eventing`) does not carry the fix and cannot receive it.** The
+two share the name `feat/facepod-config-system` on origin and locally while being *independent
+creations of the demo*: their merge-base is `2fb3308` (2026-07-06), which contains no
+`demos/facepod-boarding` directory at all. Merging them yields **10 add/add conflicts with no
+correct resolution**. Anyone running `git pull` or opening a PR across the two walks into that.
+
+⚠ **Rename one of them before someone branches from the wrong one.**
+
+One more branch-scoped difference that reads like a contradiction if you miss it: the demo's
+`deno.jsonc` import map points at `code.cuss2.app` on **lineage A**, and at
+`../../vendor/hardware-libs/…` on **lineage B**. Both are correct for their branch. On lineage A
+the Dockerfile and README still describe the submodule as the import path, which is a genuine
+self-contradiction in that branch — not in this document.
 
 ## 3. What to send back
 
