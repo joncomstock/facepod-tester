@@ -16,7 +16,9 @@ export interface CaptureFrame {
   /** The detected-face image from the capture result (v1 "feed"). */
   image: { datatype: string; data: string } | null;
   quality: number;
-  spoofScore: number;
+  /** null when the device did not measure liveness (no threshold requested). Null, not 0 —
+   *  0 is the most-live score. Matches `matchScore`'s null-for-absent convention below. */
+  spoofScore: number | null;
   livenessPassed: boolean;
   numberOfFaces: number;
   /** Full-frame coords (px) — present in v1 but not drawn (no full frame yet). */

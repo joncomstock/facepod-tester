@@ -73,7 +73,10 @@ export function LiveDataDisclosure(
   const fb = frame?.positioningFeedback ?? null;
   const lm = frame?.landmarks ?? null;
   const hasFace = !!frame && frame.numberOfFaces >= 1;
-  const livenessMeasured = hasFace && frame!.faceStatus !== "liveness_unmeasured";
+  // The score's presence IS "was liveness measured" — read it directly rather than through
+  // the faceStatus string, which was only ever a proxy for the same fact.
+  const spoofScore = hasFace ? frame!.spoofScore : null;
+  const livenessMeasured = spoofScore != null;
   const headTag = captureStatus === "paused"
     ? "paused"
     : (captureStatus === "stale" || videoStatus === "stale")
@@ -124,7 +127,7 @@ export function LiveDataDisclosure(
       </Group>
 
       <Group title="Liveness" status={captureStatus}>
-        <Row k="Spoof score" v={livenessMeasured ? frame!.spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} note="lower is better" />
+        <Row k="Spoof score" v={spoofScore != null ? spoofScore.toFixed(3) : (frame ? "not measured" : DASH)} note="lower is better" />
         <Row
           k="Liveness"
           v={!hasFace ? DASH : !livenessMeasured ? "n/a" : frame!.livenessPassed ? "PASS" : "FAIL"}

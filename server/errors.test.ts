@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { normalizeError } from "./errors.ts";
 import {
   FaceModuleApiError,
+  InvalidArgumentError,
   NotConnectedError,
   UnsupportedDatatypeError,
   UnsupportedDiagnosticError,
@@ -78,4 +79,16 @@ Deno.test("normalizeError: non-Error values", () => {
   assertEquals(normalizeError("string failure").message, "string failure");
   assertEquals(normalizeError(undefined).message, "Unknown error");
   assertEquals(normalizeError(undefined).httpStatus, 500);
+});
+
+Deno.test("normalizeError: InvalidArgumentError maps to 400, not a generic 500", () => {
+  // Without an arm it fell to the default 500 — a caller's bad argument reported as a server
+  // failure, which is exactly what this switch exists to prevent.
+  const n = normalizeError(
+    new InvalidArgumentError(
+      "minimalMatchScore must be a probability in [0,1] (got -1)",
+    ),
+  );
+  assertEquals(n.name, "InvalidArgumentError");
+  assertEquals(n.httpStatus, 400);
 });

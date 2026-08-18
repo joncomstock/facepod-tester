@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, type NormalizedError, type SessionStatus } from "../../api.ts";
+import { api, type NormalizedError, type SessionStatus, toErrorDetail } from "../../api.ts";
 import { DLL_PATH, loadConnectionSettings } from "../../live/connectionSettings.ts";
 import { readImageFile } from "../../live/readImageFile.ts";
 import { useWatchLoop } from "../../live/useWatchLoop.ts";
@@ -8,7 +8,7 @@ import { overlayDecision, overlayFromFrame } from "../../live/overlayDisplay.ts"
 import { canUseCurrentFace, computeVerdict, guidanceFor, guidanceForSnapshot, shouldAdoptSession } from "../../live/logic.ts";
 import type { CaptureFrame, LiveThresholds } from "../../live/types.ts";
 import { distanceHint, meanLuminance } from "../../live/derived.ts";
-import { captureStaleMs, telemetryStatus, videoStatus } from "../../live/freshness.ts";
+import { captureStaleMs, freshnessStatus } from "../../live/freshness.ts";
 import { Feed } from "./Feed.tsx";
 import { Telemetry } from "./Telemetry.tsx";
 import { ActionDock } from "./ActionDock.tsx";
@@ -54,8 +54,8 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
   const sinceStartMs = watchStartedAt == null ? null : now - watchStartedAt;
   // Capture staleness scales with the configurable capture timeout (+ match/processing margin).
   const captureStaleAfterMs = captureStaleMs(thresholds.timeoutMs);
-  const captureStatus = telemetryStatus({ watching, captureAgeMs, sinceStartMs, staleAfterMs: captureStaleAfterMs });
-  const feedStatus = videoStatus({ active: scene === "live" && watching, videoAgeMs, sinceStartMs });
+  const captureStatus = freshnessStatus({ active: watching, ageMs: captureAgeMs, sinceStartMs, staleAfterMs: captureStaleAfterMs });
+  const feedStatus = freshnessStatus({ active: scene === "live" && watching, ageMs: videoAgeMs, sinceStartMs });
   // Eligible only when the capture lane is genuinely LIVE (not paused/stale) AND the
   // current frame passes the strict gate — a stalled good frame must not qualify.
   const currentFaceOk = captureStatus === "live" && canUseCurrentFace(frame, thresholds);
@@ -125,7 +125,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
     } catch (e) {
       setScene("idle");
       onError(
-        e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 },
+        toErrorDetail(e)
       );
     }
   }, [onError]);
@@ -143,7 +143,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
       // idle, and RESUME the lanes so the retained session isn't left frozen: restore
       // the prior watch state and re-arm the frame poll (scene stays "live", so the
       // poll won't re-arm on its own without bumping restartKey).
-      onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
+      onError(toErrorDetail(e));
       onSessionChange?.(); // refresh the status strip — it still reads connected
       setWatching(wasWatching);
       setFeedEpoch((n) => n + 1);
@@ -253,7 +253,7 @@ export function LiveView({ status, thresholds, onError, onSessionChange, deviceP
       setRefThumb(`data:image/${read.datatype === "jpg" ? "jpeg" : read.datatype};base64,${read.data}`);
       setRefLabel("Photo");
     } catch (e) {
-      onError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 });
+      onError(toErrorDetail(e));
     }
   }, [onError, thresholds.minimalQuality]);
 

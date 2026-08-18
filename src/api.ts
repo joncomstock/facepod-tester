@@ -58,7 +58,10 @@ export interface FaceImage {
 }
 
 export interface Liveness {
-  spoofScore: number;
+  /** Probability the face is fake, 0..1. Lower is better. `undefined` = not measured, never
+   *  0 (the most-live value). Guard on `spoofScore != null` before arithmetic. */
+  spoofScore?: number;
+  /** True ONLY when liveness was measured and passed the requested gate. */
   passed: boolean;
 }
 
@@ -284,6 +287,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Any thrown value → the envelope the UI renders. The single place this conversion lives. */
+export function toErrorDetail(e: unknown): NormalizedError {
+  return e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -346,8 +354,6 @@ export const api = {
 
   openCamera: (req: {
     cameraId?: string;
-    algorithmType?: "on_device";
-    reservationTimeoutMs?: number;
   }) => post<{ cameraOpen: true; status: SessionStatus }>("/api/camera/open", req),
 
   closeCamera: () =>
@@ -356,11 +362,11 @@ export const api = {
   capture: (req: CaptureRequest, signal?: AbortSignal) =>
     post<{ result: CaptureResult }>("/api/capture", req, signal),
 
+  // No maximalSpoofScore: a still has no liveness, and the server no longer forwards one.
   processImage: (req: {
     image: string;
     datatype: ImageDatatype;
     minimalQuality?: number;
-    maximalSpoofScore?: number;
   }) => post<{ result: ProcessResult }>("/api/process-image", req),
 
   match: (req: { template1: string; template2: string; minimalMatchScore: number }, signal?: AbortSignal) =>

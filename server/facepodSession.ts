@@ -123,13 +123,6 @@ const DRAIN_OP_MS = 6000;
  */
 const DRAIN_FRAME_MS = 2000;
 
-const LOG_PAGE_DEFAULT_LIMIT = 500;
-const LOG_PAGE_MAX_LIMIT = 1000;
-function clampLogLimit(limit?: number): number {
-  if (limit === undefined) return LOG_PAGE_DEFAULT_LIMIT;
-  return Math.max(1, Math.min(limit, LOG_PAGE_MAX_LIMIT));
-}
-
 /** A paged view of one cached log channel (raw lines). The route maps lines →
  *  { raw, parsed?, parseError? } entries and encodes the wire LogPage. */
 export interface LogPageRaw {
@@ -156,7 +149,6 @@ export class FacePodSession {
   #dllDir: string | null = null;
   #pollIntervalMs: number | null = null;
   #mock = false;
-  #cameraOpen = false;
   #busy = false;
   #lastError: NormalizedError | null = null;
   #mockScenario: MockScenario = "good";
@@ -265,15 +257,9 @@ export class FacePodSession {
   async #track<T>(fn: () => Promise<T>): Promise<T> {
     if (this.#busy) busy();
     this.#busy = true;
-    // Wrap fn() so a synchronous throw is promoted to a rejected promise;
-    // this guarantees the finally block always runs and #busy is always cleared.
-    const p: Promise<T> = new Promise((res, rej) => {
-      try {
-        fn().then(res, rej);
-      } catch (err) {
-        rej(err);
-      }
-    });
+    // Promise.try promotes a synchronous throw from fn() to a rejected promise, so the
+    // finally below always runs and #busy is always cleared.
+    const p: Promise<T> = Promise.try(fn);
     this.#inFlightOp = p;
     try {
       const result = await p;
@@ -385,7 +371,6 @@ export class FacePodSession {
           ? null
           : (config.pollIntervalMs ?? null);
         this.#mock = config.mock;
-        this.#cameraOpen = false;
         return info;
       });
     } catch (err) {
@@ -496,7 +481,6 @@ export class FacePodSession {
       this.#dllDir = null;
       this.#pollIntervalMs = null;
       this.#mock = false;
-      this.#cameraOpen = false;
       this.#latestSnapshot = null;
       this.#highRes.clear();
       this.#logCache.clear();
@@ -526,13 +510,13 @@ export class FacePodSession {
     return this.#track(() => this.#require().device.getDiagnostics());
   }
 
+  /** Page one log channel. Validated at the HTTP boundary (parseLogQuery). */
   async getLogs(
     code: DiagnosticLogCode,
-    opts: { cursor?: number; limit?: number } = {},
+    opts: { cursor: number; limit: number },
     signal?: AbortSignal,
   ): Promise<LogPageRaw> {
-    const limit = clampLogLimit(opts.limit);
-    const cursor = opts.cursor ?? 0;
+    const { cursor, limit } = opts;
     this.#sweepLogCache();
     let entry = this.#logCache.get(code);
     const fresh = entry !== undefined &&
@@ -581,18 +565,22 @@ export class FacePodSession {
     }
   }
 
-  /** Idempotent: opening an already-open camera is a no-op (never double-open). */
-  async openCamera(opts?: {
-    cameraId?: string;
-    algorithmType?: "on_device";
-    reservationTimeoutMs?: number;
-  }): Promise<{ cameraOpen: true }> {
+  /**
+   * Idempotent: opening an already-open camera is a no-op (never double-open).
+   *
+   * `cameraId` only. algorithmType and reservationTimeoutMs were NetHFAPI open-context fields
+   * the library never read — it accepted and discarded them, so this route advertised two
+   * knobs that did nothing. TypeScript did not catch it because a variable (unlike an object
+   * literal) gets no excess-property check.
+   */
+  async openCamera(
+    opts?: { cameraId?: string },
+  ): Promise<{ cameraOpen: true }> {
     return await this.#track(async () => {
       const fp = this.#require();
       if (!fp.device.isOpen) {
         await fp.device.openCamera(opts);
       }
-      this.#cameraOpen = true;
       this.#logCache.clear(); // a context change must invalidate cached logs
       return { cameraOpen: true } as const;
     });
@@ -602,7 +590,6 @@ export class FacePodSession {
     return await this.#track(async () => {
       const fp = this.#require();
       await fp.device.closeCamera(); // library-idempotent
-      this.#cameraOpen = false;
       this.#logCache.clear(); // a context change must invalidate cached logs
       return { cameraOpen: false } as const;
     });
@@ -685,10 +672,13 @@ export class FacePodSession {
     }
   }
 
+  /** No maximalSpoofScore: a still image has no liveness to measure, and the library returns
+   *  no spoof score for one. It used to be accepted and discarded, so this path advertised an
+   *  anti-spoof gate that never ran. */
   processImage(
     data: string,
     datatype: ImageDatatype,
-    opts?: { minimalQuality?: number; maximalSpoofScore?: number },
+    opts?: { minimalQuality?: number },
   ): Promise<ProcessResult> {
     const image: FaceImage = { modality: "face", datatype, data };
     return this.#track(() => this.#require().device.processImage(image, opts));
@@ -715,9 +705,9 @@ export class FacePodSession {
   ): Promise<CaptureAndMatchResult> {
     return this.#track(async () => {
       const fp = this.#require();
+      // No spoof gate on the reference still — see processImage above.
       const reference = await fp.device.processImage(params.reference, {
         minimalQuality: params.capture.minimalQuality,
-        maximalSpoofScore: params.capture.maximalSpoofScore,
       });
       const captureId = ++this.#captureId;
       this.#latestSnapshot = null;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type MockScenario, type NormalizedError, type SessionStatus } from "./api.ts";
+import { api, type MockScenario, type NormalizedError, type SessionStatus, toErrorDetail } from "./api.ts";
 import { DEFAULT_THRESHOLDS, parseTimeoutMs, type Thresholds } from "./settings.ts";
 import { LiveView } from "./components/live/LiveView.tsx";
 import { SettingsModal } from "./components/SettingsModal.tsx";
@@ -53,7 +53,7 @@ export function App() {
       api.setScenario(next)
         .then((res) => setStatus(res.status))
         .catch((e) =>
-          setError(e instanceof ApiError ? e.detail : { name: "Error", message: String(e), httpStatus: 500 })
+          setError(toErrorDetail(e))
         );
     }
   }, [mock, status]);

@@ -81,6 +81,22 @@ describe("toCaptureFrame", () => {
     expect(f.image).toBeNull();
     expect(f.boundingBox).toBeNull();
   });
+
+  // The wire omits spoofScore entirely when the device measured no liveness (no threshold
+  // requested). It must arrive as null, NEVER 0 — 0 is the most-live score, so coercing an
+  // absence to it reads as a perfect liveness pass. Every fixture above supplies a score,
+  // which is why the required-`spoofScore` mirror went unnoticed.
+  it("maps an UNMEASURED liveness to null, not 0", () => {
+    const f = toCaptureFrame({
+      quality: 0.92,
+      numberOfFaces: 1,
+      liveness: { passed: false }, // no spoofScore key at all
+      isCaptured: false,
+      faceStatus: "liveness_unmeasured",
+    });
+    expect(f.spoofScore).toBeNull();
+    expect(f.livenessPassed).toBe(false);
+  });
 });
 
 const T: LiveThresholds = {

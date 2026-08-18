@@ -46,9 +46,12 @@ function Gauge(
 export function Telemetry(
   { frame, liveQuality, thresholds, hasReference, deviceParams, status = "live" }: Props,
 ) {
-  const livenessMeasured = !!frame && frame.numberOfFaces >= 1 &&
-    frame.faceStatus !== "liveness_unmeasured";
-  const livenessValue = livenessMeasured ? livenessConfidence(frame!.spoofScore) : null;
+  // Gate on the score's own presence, not on the faceStatus string. The score IS the
+  // measurement; the string was a proxy for it, and a proxy decouples silently — feeding
+  // an unmeasured score to `1 - spoofScore` renders the gauge as NaN%.
+  const livenessValue = frame && frame.numberOfFaces >= 1 && frame.spoofScore != null
+    ? livenessConfidence(frame.spoofScore)
+    : null;
   const livenessThreshold = livenessConfidenceThreshold(thresholds.maximalSpoofScore);
   const livenessDeviceThreshold = deviceParams?.recMaxSpoofProbability != null
     ? livenessConfidence(deviceParams.recMaxSpoofProbability)

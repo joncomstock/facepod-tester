@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, type NormalizedError } from "../api.ts";
+import { api, type NormalizedError, toErrorDetail } from "../api.ts";
 import { isFreshFrame, nextLastSeq, snapshotForSession } from "./framePoll.ts";
 import type { LiveSnapshotState } from "./types.ts";
 
@@ -95,10 +95,7 @@ export function useFramePoll(opts: Options): FramePollState {
           setSnapshotAgeMs(resp.snapshotAgeMs);
         } catch (e) {
           if (!runningRef.current) break; // aborted by stopAndDrain — not an error
-          const detail = e instanceof ApiError
-            ? e.detail
-            : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
-          ref.current.onError(detail);
+          ref.current.onError(toErrorDetail(e));
           runningRef.current = false;
           break;
         }

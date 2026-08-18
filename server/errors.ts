@@ -102,6 +102,16 @@ export function normalizeError(err: unknown): NormalizedError {
         httpStatus: 422,
       };
 
+    case "InvalidArgumentError":
+      // 400, not the default 500: the caller supplied an unusable argument (a threshold that
+      // is not a probability, a camera id that is not attached). The plan that created this
+      // switch asked for FFI errors to surface as clear UI errors, not generic 500s.
+      return {
+        name: "InvalidArgumentError",
+        message: e.message,
+        httpStatus: 400,
+      };
+
     case "ConfigError":
       return { name: "ConfigError", message: e.message, httpStatus: 400 };
 

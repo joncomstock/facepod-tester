@@ -10,7 +10,7 @@ export function toCaptureFrame(
   return {
     image: cap.image ? { datatype: cap.image.datatype, data: cap.image.data } : null,
     quality: cap.quality,
-    spoofScore: cap.liveness.spoofScore,
+    spoofScore: cap.liveness.spoofScore ?? null,
     livenessPassed: cap.liveness.passed,
     numberOfFaces: cap.numberOfFaces,
     boundingBox: cap.boundingBox ?? null,

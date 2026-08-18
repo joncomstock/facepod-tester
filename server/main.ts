@@ -23,7 +23,12 @@ import {
 import { normalizeError } from "./errors.ts";
 import { checkRequestGate, TESTER_HEADER } from "./security.ts";
 import { FacePodSession } from "./facepodSession.ts";
-import { isMockScenario, MOCK_SCENARIOS } from "@eai/hid/facepod";
+import {
+  IMAGE_DATATYPES,
+  isImageDatatype,
+  isMockScenario,
+  MOCK_SCENARIOS,
+} from "@eai/hid/facepod";
 import { toFramePayload } from "./videoFramePayload.ts";
 import { toDiagnosticsWire } from "./diagnosticsWire.ts";
 import { type LogPage, parseLogQuery, toLogEntries } from "./logEntries.ts";
@@ -66,17 +71,14 @@ async function readJson(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
-const VALID_DATATYPES: readonly ImageDatatype[] = ["png", "jpg", "jpeg"];
-
+// Case folding belongs to this wire boundary; the library guard is case-sensitive.
 function asImageDatatype(value: unknown): ImageDatatype {
   const v = String(value ?? "").toLowerCase();
-  if ((VALID_DATATYPES as readonly string[]).includes(v)) {
-    return v as ImageDatatype;
-  }
+  if (isImageDatatype(v)) return v;
   throw Object.assign(
     new Error(
       `Unsupported image datatype "${value}". Expected one of: ${
-        VALID_DATATYPES.join(", ")
+        IMAGE_DATATYPES.join(", ")
       }.`,
     ),
     { name: "UnsupportedDatatypeError", datatype: String(value ?? "") },
@@ -224,10 +226,6 @@ export function createApp(
       const body = await readJson(c);
       const result = await session.openCamera({
         cameraId: typeof body.cameraId === "string" ? body.cameraId : undefined,
-        algorithmType: body.algorithmType === "on_device"
-          ? "on_device"
-          : undefined,
-        reservationTimeoutMs: num(body.reservationTimeoutMs),
       });
       return c.json({ ...result, status: session.status() });
     }),
@@ -262,7 +260,6 @@ export function createApp(
       const datatype = asImageDatatype(body.datatype);
       const result = await session.processImage(data, datatype, {
         minimalQuality: num(body.minimalQuality),
-        maximalSpoofScore: num(body.maximalSpoofScore),
       });
       return c.json({ result });
     }),

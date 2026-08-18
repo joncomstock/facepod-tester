@@ -13,32 +13,20 @@ export function captureStaleMs(timeoutMs: number | undefined): number {
 }
 
 /**
- * Capture-telemetry freshness (gauges + measured Frame Data). A just-(re)started watch with
- * no frame yet is "live" during the grace window — not a false "stale" — and the caller must
- * reset the age timestamp on start so a leftover age can't trip it. graceMs defaults to the
- * stale window.
+ * Freshness of one lane (capture telemetry or the video feed), from its last-data age.
+ *
+ * A just-(re)started lane with no data yet is "live" during the grace window — not a false
+ * "stale" — so the caller MUST reset the age timestamp on start, or a leftover age trips it.
+ * graceMs defaults to the stale window.
  */
-export function telemetryStatus(
-  i: { watching: boolean; captureAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number },
-): FreshnessStatus {
-  if (!i.watching) return "paused";
-  const stale = i.staleAfterMs ?? DEFAULT_STALE_MS;
-  const grace = i.graceMs ?? stale;
-  if (i.captureAgeMs == null) {
-    return i.sinceStartMs != null && i.sinceStartMs <= grace ? "live" : "stale";
-  }
-  return i.captureAgeMs > stale ? "stale" : "live";
-}
-
-/** Video-stream freshness (the feed). Same grace treatment on (re)start. */
-export function videoStatus(
-  i: { active: boolean; videoAgeMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number },
+export function freshnessStatus(
+  i: { active: boolean; ageMs: number | null; sinceStartMs: number | null; staleAfterMs?: number; graceMs?: number },
 ): FreshnessStatus {
   if (!i.active) return "paused";
   const stale = i.staleAfterMs ?? DEFAULT_STALE_MS;
   const grace = i.graceMs ?? stale;
-  if (i.videoAgeMs == null) {
+  if (i.ageMs == null) {
     return i.sinceStartMs != null && i.sinceStartMs <= grace ? "live" : "stale";
   }
-  return i.videoAgeMs > stale ? "stale" : "live";
+  return i.ageMs > stale ? "stale" : "live";
 }

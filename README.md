@@ -13,13 +13,14 @@ owns all device communication; a React/Vite frontend drives the workflow.
 ```text
 Browser (React/Vite)  ──/api──►  Deno backend (Hono)  ──USB / Deno FFI──►  FacePod (HidFace.dll)
                                        │
-                                       └─ @eai/hid/facepod  (local hardware-libs, unmodified)
+                                       └─ @eai/hid/facepod  (published package, unmodified)
 ```
 
 ## Quick start
 
-Prereqs: **Deno ≥ 2**, **Node ≥ 18**, and the sibling **`hardware-libs`** repo
-at `../hardware-libs` (see [Prerequisites](#prerequisites)).
+Prereqs: **Deno ≥ 2** and **Node ≥ 18**. No sibling checkout is needed — the
+FacePod library resolves from the registry (see
+[Prerequisites](#prerequisites)).
 
 **Fastest path — mock mode, no hardware, one terminal:**
 
@@ -62,26 +63,26 @@ out).
 
 ## UI modes
 
-| Mode | Description |
-| ---- | ----------- |
+| Mode               | Description                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Live** (default) | Tap **Go Live** — connects, opens the camera, and starts a continuous watch loop. The HUD shows the detected-face image refreshed by each loop iteration, three threshold-marker bars (Quality / Liveness / Match), an ACCEPT/REJECT verdict, and derived positioning guidance (bbox size / faceStatus). Optionally set an in-memory reference image to activate the Match bar. |
-| **Manual** | The original five-panel step-through (01 Connection · 02 Device Info · 03 Camera · 04 Capture · 05 Match / Upload). Useful for one-off testing, inspecting raw JSON, and exercising individual API calls. |
+| **Manual**         | The original five-panel step-through (01 Connection · 02 Device Info · 03 Camera · 04 Capture · 05 Match / Upload). Useful for one-off testing, inspecting raw JSON, and exercising individual API calls.                                                                                                                                                                       |
 
 The masthead toggle switches between modes without dropping the session.
 
 > **Live feed boundary:** the HUD displays the **detected-face image** returned
 > by each `captureAndProcess` iteration (the crop the HF pipeline actually
 > evaluated). It is **not** a full-frame webcam stream. A true full-frame video
-> feed with bounding-box / landmark overlay requires binding `HFGetVideoFrame` in
-> `hardware-libs` — that is a separate **Phase 2** effort. Positioning guidance
-> shown in the HUD is derived in-UI from bbox size and faceStatus and is labeled
-> "derived, not HID-measured."
+> feed with bounding-box / landmark overlay requires binding `HFGetVideoFrame`
+> in `hardware-libs` — that is a separate **Phase 2** effort. Positioning
+> guidance shown in the HUD is derived in-UI from bbox size and faceStatus and
+> is labeled "derived, not HID-measured."
 
 ## Layout
 
 ```text
 facepod-tester/
-├── deno.jsonc          # backend import map (→ ../hardware-libs/hid/facepod/mod.ts) + tasks
+├── deno.jsonc          # backend import map (→ jsr:@eai/hid/facepod) + tasks
 ├── package.json        # frontend (React + Vite)
 ├── server/             # Deno backend
 │   ├── main.ts           # Hono app + all API endpoints + graceful shutdown
@@ -95,9 +96,12 @@ facepod-tester/
 ## Prerequisites
 
 - **Deno** ≥ 2.x and **Node** ≥ 18 (for the Vite dev server).
-- The sibling **`hardware-libs`** repo checked out at `../hardware-libs` (this
-  app imports `../hardware-libs/hid/facepod/mod.ts` directly and does **not**
-  modify it).
+- No sibling checkout: `@eai/hid/facepod` resolves from the registry, so a fresh
+  clone builds on its own. To test against **unlanded** library work, point that
+  one import-map entry at a local path (e.g.
+  `../hardware-libs/hid/facepod/mod.ts`) and revert it before committing — a
+  committed relative path makes the repo unbuildable for anyone without that
+  sibling directory.
 - **For live hardware:**
   - **Windows** with the FacePod attached over USB and `HidFace.dll` available
     (plus its co-located deps — `ICypher.dll` and the MSVC runtime).
@@ -215,7 +219,7 @@ All endpoints are under `/api`. Errors return
 | `POST /api/disconnect`        | close camera + dispose session                                                  |
 | `GET  /api/device-info`       | `getInfo`                                                                       |
 | `GET  /api/cameras`           | `getCameraList`                                                                 |
-| `POST /api/camera/open`       | open camera context (`cameraId?`, `algorithmType?`, `reservationTimeoutMs?`)    |
+| `POST /api/camera/open`       | open camera context (`cameraId?`)                                               |
 | `POST /api/camera/close`      | close camera context                                                            |
 | `POST /api/capture`           | `captureAndProcess` (`minimalQuality`, `maximalSpoofScore?`, `timeoutMs?`)      |
 | `POST /api/process-image`     | `processImage` (`image` base64, `datatype` png/jpg/jpeg)                        |
@@ -246,8 +250,8 @@ With the backend running live on the device (`deno task dev`, valid license):
    verdict update.
 3. Optionally tap **Set reference…**, choose a PNG/JPEG face; the Match bar
    activates and contributes to the verdict.
-4. Tap **Continuous watch · ON** to pause the loop (clears the last frame/verdict);
-   tap again to resume.
+4. Tap **Continuous watch · ON** to pause the loop (clears the last
+   frame/verdict); tap again to resume.
 5. Tap **End session** to close the camera, disconnect, and return to the idle
    screen.
 
@@ -256,14 +260,15 @@ With the backend running live on the device (`deno task dev`, valid license):
 Switch to **Manual** in the masthead toggle, then:
 
 1. **Connect** (panel 01) — leave mock unticked (live); device info appears.
-2. **Get Device Info** / **Get Cameras** (panel 02) — confirm the device and camera list.
+2. **Get Device Info** / **Get Cameras** (panel 02) — confirm the device and
+   camera list.
 3. **Open Camera** (panel 03) — pick a camera (or default) and open the context.
-4. **Upload + Process Reference** (panel 05) — choose a PNG/JPEG face; click _Process
-   Reference → Template_.
-5. **Capture Live Face** (panel 04) — set quality/spoof thresholds; click _Capture Live
-   Face_.
-6. **Match** (panel 05) — click _Match Reference ↔ Live_ (or _Capture & Match_ for the
-   combined flow); check the pass/fail verdict, score, and liveness.
+4. **Upload + Process Reference** (panel 05) — choose a PNG/JPEG face; click
+   _Process Reference → Template_.
+5. **Capture Live Face** (panel 04) — set quality/spoof thresholds; click
+   _Capture Live Face_.
+6. **Match** (panel 05) — click _Match Reference ↔ Live_ (or _Capture & Match_
+   for the combined flow); check the pass/fail verdict, score, and liveness.
 7. **Close Camera** (panel 03).
 8. **Disconnect** (panel 01).
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { api, ApiError, type NormalizedError } from "../api.ts";
+import { api, type NormalizedError, toErrorDetail } from "../api.ts";
 import { toCaptureFrame } from "./logic.ts";
 import type { CaptureFrame, LiveThresholds } from "./types.ts";
 
@@ -68,9 +68,7 @@ export function useWatchLoop(opts: Options): { stopAndDrain: () => Promise<void>
           onFrame(toCaptureFrame(cap.result, match));
         } catch (e) {
           if (!runningRef.current) break; // aborted by stopAndDrain — not an error
-          const detail = e instanceof ApiError
-            ? e.detail
-            : { name: "Error", message: String(e), httpStatus: 500 } as NormalizedError;
+          const detail = toErrorDetail(e);
           // 409 BusyError is transient (a manual op raced us) — pause and retry.
           if (detail.name !== "BusyError") {
             onError(detail);

@@ -40,6 +40,19 @@ Deno.test("GET /api/logs -> 422 on unknown/destructive code", async () => {
   assertEquals(res.status, 422);
 });
 
+// parseLogQuery is the SINGLE place the page limit is bounded (the session no longer
+// re-clamps), so the hard max has to be proven here. The mock channel is 1201 lines, so an
+// unclamped 99999 would return all of them.
+Deno.test("GET /api/logs clamps an over-max limit to the hard max", async () => {
+  const res = await (await mockApp()).request(
+    "/api/logs?code=hfapi&cursor=0&limit=99999",
+    { headers: H },
+  );
+  assertEquals(res.status, 200);
+  const b = await res.json();
+  assertEquals(b.entries.length, 1000); // LOG_PAGE_MAX_LIMIT, not 1201
+});
+
 Deno.test("GET /api/logs -> 400 on bad cursor/limit", async () => {
   const app = await mockApp();
   assertEquals(
